@@ -1,0 +1,1364 @@
+{
+	"info": {
+		"_postman_id": "squad-backend-api",
+		"name": "Squad Backend API",
+		"description": "Complete API collection for Squad STM Backend (Spring Boot)",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Auth",
+			"item": [
+				{
+					"name": "Signup",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"testuser@example.com\",\n  \"password\": \"Test123456\",\n  \"firstName\": \"John\",\n  \"lastName\": \"Doe\",\n  \"phone\": \"+441234567890\",\n  \"userName\": \"johndoe\",\n  \"clubName\": \"Test Football Club\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/signup",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "signup"]
+						}
+					}
+				},
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.data && jsonData.data.accessToken) {",
+									"        pm.environment.set(\"accessToken\", jsonData.data.accessToken);",
+									"        pm.environment.set(\"refreshToken\", jsonData.data.refreshToken);",
+									"        pm.environment.set(\"userId\", jsonData.data.userId);",
+									"        pm.environment.set(\"clubId\", jsonData.data.clubId || \"\");",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"testuser@example.com\",\n  \"password\": \"Test123456\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "Google Login",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"idToken\": \"YOUR_FIREBASE_ID_TOKEN_HERE\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/google-login",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "google-login"]
+						}
+					}
+				},
+				{
+					"name": "Verify Token",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"token\": \"YOUR_FIREBASE_ID_TOKEN_HERE\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/verifyToken",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "verifyToken"]
+						}
+					}
+				},
+				{
+					"name": "Verify Email",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/verifyEmail/:userId",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "verifyEmail", ":userId"],
+							"variable": [
+								{
+									"key": "userId",
+									"value": "{{userId}}"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Forgot Password",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"testuser@example.com\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/forgot-password",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "forgot-password"]
+						}
+					}
+				},
+				{
+					"name": "Reset Password",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"token\": \"RESET_TOKEN_FROM_EMAIL\",\n  \"newPassword\": \"NewPassword123\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/reset-password",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "reset-password"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Players",
+			"item": [
+				{
+					"name": "Create Player",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"firstName\": \"Lionel\",\n  \"lastName\": \"Messi\",\n  \"email\": \"messi@example.com\",\n  \"phone\": \"+441234567891\",\n  \"dateOfBirth\": \"1987-06-24\",\n  \"address\": \"123 Football Street\",\n  \"city\": \"Barcelona\",\n  \"postcode\": \"08001\",\n  \"emergencyContactName\": \"Antonela Roccuzzo\",\n  \"emergencyContactPhone\": \"+441234567892\",\n  \"medicalConditions\": \"None\",\n  \"teamId\": null\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/players",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "players"]
+						}
+					}
+				},
+				{
+					"name": "Get All Players",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/players?pageNumber=1&pageSize=10&search=",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "players"],
+							"query": [
+								{
+									"key": "pageNumber",
+									"value": "1"
+								},
+								{
+									"key": "pageSize",
+									"value": "10"
+								},
+								{
+									"key": "search",
+									"value": ""
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Player By ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/players/:id",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "players", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "PLAYER_ID_HERE"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Update Player",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"firstName\": \"Lionel\",\n  \"lastName\": \"Messi\",\n  \"email\": \"messi@example.com\",\n  \"phone\": \"+441234567891\",\n  \"dateOfBirth\": \"1987-06-24\",\n  \"address\": \"123 Football Street\",\n  \"city\": \"Barcelona\",\n  \"postcode\": \"08001\",\n  \"emergencyContactName\": \"Antonela Roccuzzo\",\n  \"emergencyContactPhone\": \"+441234567892\",\n  \"medicalConditions\": \"None\",\n  \"teamId\": null\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/players/:id",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "players", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "PLAYER_ID_HERE"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Delete Player",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/players/:id",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "players", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "PLAYER_ID_HERE"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Bulk Create Players",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"players\": [\n    {\n      \"firstName\": \"Cristiano\",\n      \"lastName\": \"Ronaldo\",\n      \"email\": \"ronaldo@example.com\",\n      \"phone\": \"+441234567893\"\n    },\n    {\n      \"firstName\": \"Kylian\",\n      \"lastName\": \"Mbappe\",\n      \"email\": \"mbappe@example.com\",\n      \"phone\": \"+441234567894\"\n    }\n  ]\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/players/bulk",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "players", "bulk"]
+						}
+					}
+				},
+				{
+					"name": "Check Email Availability",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"newplayer@example.com\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/players/check-email",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "players", "check-email"]
+						}
+					}
+				},
+				{
+					"name": "Check Phone Availability",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"phone\": \"+441234567895\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/players/check-phone",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "players", "check-phone"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Teams",
+			"item": [
+				{
+					"name": "Create Team",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"teamName\": \"First Team\",\n  \"teamType\": \"Senior\",\n  \"ageGroup\": \"18+\",\n  \"description\": \"Main senior team\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/teams",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "teams"]
+						}
+					}
+				},
+				{
+					"name": "Get All Teams",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/teams?pageNumber=1&pageSize=10",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "teams"],
+							"query": [
+								{
+									"key": "pageNumber",
+									"value": "1"
+								},
+								{
+									"key": "pageSize",
+									"value": "10"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Team By ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/teams/:id",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "teams", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "TEAM_ID_HERE"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Update Team",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"teamName\": \"First Team Updated\",\n  \"teamType\": \"Senior\",\n  \"ageGroup\": \"18+\",\n  \"description\": \"Updated description\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/teams/:id",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "teams", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "TEAM_ID_HERE"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Delete Team",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/teams/:id",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "teams", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "TEAM_ID_HERE"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Sessions",
+			"item": [
+				{
+					"name": "Create Session",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"sessionName\": \"Training Session\",\n  \"sessionType\": \"Training\",\n  \"date\": \"2026-01-20\",\n  \"time\": \"18:00\",\n  \"duration\": 90,\n  \"location\": \"Main Pitch\",\n  \"price\": 15.00,\n  \"maxPlayers\": 20,\n  \"teamId\": null,\n  \"description\": \"Regular training session\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/sessions",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "sessions"]
+						}
+					}
+				},
+				{
+					"name": "Get All Sessions",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/sessions?pageNumber=1&pageSize=10",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "sessions"],
+							"query": [
+								{
+									"key": "pageNumber",
+									"value": "1"
+								},
+								{
+									"key": "pageSize",
+									"value": "10"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Session By ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/sessions/:id",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "sessions", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "SESSION_ID_HERE"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Update Session",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"sessionName\": \"Training Session Updated\",\n  \"sessionType\": \"Training\",\n  \"date\": \"2026-01-20\",\n  \"time\": \"19:00\",\n  \"duration\": 90,\n  \"location\": \"Main Pitch\",\n  \"price\": 20.00,\n  \"maxPlayers\": 25,\n  \"teamId\": null,\n  \"description\": \"Updated training session\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/sessions/:id",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "sessions", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "SESSION_ID_HERE"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Delete Session",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/sessions/:id",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "sessions", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "SESSION_ID_HERE"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Mark Attendance",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"playerIds\": [\"PLAYER_ID_1\", \"PLAYER_ID_2\"],\n  \"attendanceStatus\": \"present\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/sessions/:sessionId/mark-attendance",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "sessions", ":sessionId", "mark-attendance"],
+							"variable": [
+								{
+									"key": "sessionId",
+									"value": "SESSION_ID_HERE"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Payments",
+			"item": [
+				{
+					"name": "Create Payment Intent",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"amount\": 15.00,\n  \"currency\": \"GBP\",\n  \"clubId\": \"{{clubId}}\",\n  \"playerId\": \"PLAYER_ID_HERE\",\n  \"sessionId\": \"SESSION_ID_HERE\",\n  \"sessionDate\": \"2026-01-20\",\n  \"customerName\": \"John Doe\",\n  \"customerEmail\": \"john@example.com\",\n  \"billingAddress\": {\n    \"country\": \"GB\",\n    \"postcode\": \"SW1A 1AA\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/payments/create-payment-intent",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "payments", "create-payment-intent"]
+						}
+					}
+				},
+				{
+					"name": "Confirm Payment",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"paymentIntentId\": \"pi_xxxxxxxxxxxxx\",\n  \"clubId\": \"{{clubId}}\",\n  \"playerId\": \"PLAYER_ID_HERE\",\n  \"sessionId\": \"SESSION_ID_HERE\",\n  \"sessionDate\": \"2026-01-20\",\n  \"amount\": 15.00,\n  \"currency\": \"GBP\",\n  \"teamId\": null,\n  \"seasonId\": null,\n  \"billingAddress\": {\n    \"country\": \"GB\",\n    \"postcode\": \"SW1A 1AA\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/payments/confirm-payment",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "payments", "confirm-payment"]
+						}
+					}
+				},
+				{
+					"name": "Create Checkout Session",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"amount\": 15.00,\n  \"currency\": \"GBP\",\n  \"clubId\": \"{{clubId}}\",\n  \"playerId\": \"PLAYER_ID_HERE\",\n  \"sessionId\": \"SESSION_ID_HERE\",\n  \"sessionDate\": \"2026-01-20\",\n  \"successUrl\": \"http://localhost:4200/payment-success\",\n  \"cancelUrl\": \"http://localhost:4200/payment-cancelled\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/payments/create-checkout-session",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "payments", "create-checkout-session"]
+						}
+					}
+				},
+				{
+					"name": "Get Payment Status",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/payments/status/:transactionId",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "payments", "status", ":transactionId"],
+							"variable": [
+								{
+									"key": "transactionId",
+									"value": "TRANSACTION_ID_HERE"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Confirmation Requests",
+			"item": [
+				{
+					"name": "Get All Requests",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/confirmation-requests?pageNumber=1&pageSize=10",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "confirmation-requests"],
+							"query": [
+								{
+									"key": "pageNumber",
+									"value": "1"
+								},
+								{
+									"key": "pageSize",
+									"value": "10"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Total Payments",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/confirmation-requests/total",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "confirmation-requests", "total"]
+						}
+					}
+				},
+				{
+					"name": "Update Attendance",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"attendance\": \"Yes\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/confirmation-requests/:id/update",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "confirmation-requests", ":id", "update"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "REQUEST_ID_HERE"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Update Payment",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"payment\": \"Yes\",\n  \"paymentMethod\": \"card\",\n  \"stripeTransactionId\": \"ch_xxxxxxxxxxxxx\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/confirmation-requests/:id/payment",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "confirmation-requests", ":id", "payment"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "REQUEST_ID_HERE"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Users",
+			"item": [
+				{
+					"name": "Create User",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"newuser@example.com\",\n  \"password\": \"Password123\",\n  \"firstName\": \"Jane\",\n  \"lastName\": \"Smith\",\n  \"phone\": \"+441234567896\",\n  \"roleId\": \"ROLE_ID_HERE\",\n  \"clubId\": \"{{clubId}}\",\n  \"seasonId\": null,\n  \"loginUser\": true\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/users",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "users"]
+						}
+					}
+				},
+				{
+					"name": "Get All Users",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/users?pageNumber=1&pageSize=10",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "users"],
+							"query": [
+								{
+									"key": "pageNumber",
+									"value": "1"
+								},
+								{
+									"key": "pageSize",
+									"value": "10"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get User By ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/users/:id",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "users", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "{{userId}}"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Update User",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"updated@example.com\",\n  \"firstName\": \"Jane\",\n  \"lastName\": \"Smith Updated\",\n  \"phone\": \"+441234567897\",\n  \"roleId\": \"ROLE_ID_HERE\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/users/:id",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "users", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "{{userId}}"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Delete User",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/users/:id",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "users", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "USER_ID_HERE"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Roles",
+			"item": [
+				{
+					"name": "Create Role",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Coach\",\n  \"description\": \"Team coach role\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/roles",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "roles"]
+						}
+					}
+				},
+				{
+					"name": "Get All Roles",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/roles?pageNumber=1&pageSize=10",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "roles"],
+							"query": [
+								{
+									"key": "pageNumber",
+									"value": "1"
+								},
+								{
+									"key": "pageSize",
+									"value": "10"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Role By ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/roles/:id",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "roles", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "ROLE_ID_HERE"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Update Role",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Senior Coach\",\n  \"description\": \"Updated coach role\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/roles/:id",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "roles", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "ROLE_ID_HERE"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Delete Role",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/roles/:id",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "roles", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": "ROLE_ID_HERE"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Finance",
+			"item": [
+				{
+					"name": "Get Wallet",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/finances/wallet/:clubId",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "finances", "wallet", ":clubId"],
+							"variable": [
+								{
+									"key": "clubId",
+									"value": "{{clubId}}"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Transactions",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/finances/transactions?clubId={{clubId}}&pageNumber=1&pageSize=10",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "finances", "transactions"],
+							"query": [
+								{
+									"key": "clubId",
+									"value": "{{clubId}}"
+								},
+								{
+									"key": "pageNumber",
+									"value": "1"
+								},
+								{
+									"key": "pageSize",
+									"value": "10"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Financial Summary",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/finances/summary/:clubId",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "finances", "summary", ":clubId"],
+							"variable": [
+								{
+									"key": "clubId",
+									"value": "{{clubId}}"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Seasons",
+			"item": [
+				{
+					"name": "Get Current Season",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/seasons/current",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "seasons", "current"]
+						}
+					}
+				},
+				{
+					"name": "Get All Seasons",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/seasons",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "seasons"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Counts",
+			"item": [
+				{
+					"name": "Get Counts",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/counts",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "counts"]
+						}
+					}
+				},
+				{
+					"name": "Get Clubs With Counts",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/counts/clubs?pageNumber=1&pageSize=10",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "counts", "clubs"],
+							"query": [
+								{
+									"key": "pageNumber",
+									"value": "1"
+								},
+								{
+									"key": "pageSize",
+									"value": "10"
+								}
+							]
+						}
+					}
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080",
+			"type": "string"
+		},
+		{
+			"key": "accessToken",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "refreshToken",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "userId",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "clubId",
+			"value": "",
+			"type": "string"
+		}
+	]
+}

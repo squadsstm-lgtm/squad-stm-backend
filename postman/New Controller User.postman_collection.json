@@ -1,0 +1,38 @@
+{
+  "info": {
+    "name": "New Controller User",
+    "description": "One-time seed: create the first Controller user (Master Panel). Only works when no Controller exists.",
+    "schema": "https://schema.postman.com/json/collection/v2.1.0/draft-07/collection.json"
+  },
+  "item": [
+    {
+      "name": "Seed Controller User",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"controller@yourdomain.com\",\n  \"password\": \"YourSecurePassword123\",\n  \"firstName\": \"Controller\",\n  \"lastName\": \"User\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/seed-controller",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "auth", "seed-controller"]
+        },
+        "description": "Creates the first Controller user. Replace email, password, firstName, lastName in the body with your values. Call once only."
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    }
+  ]
+}
