@@ -34,7 +34,6 @@ build/
 
 ### Secrets ###
 src/main/resources/serviceAccountKey.json
-src/main/resources/application.properties
 
 ### Maven ###
 .mvn/
