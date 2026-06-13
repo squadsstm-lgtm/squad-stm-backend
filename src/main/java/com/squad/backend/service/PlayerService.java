@@ -49,6 +49,9 @@ public class PlayerService {
     @Value("${app.frontend-url}")
     private String frontendUrl;
 
+    @Value("${jwt.invite-expiration}")
+    private long jwtInviteExpiration;
+
     public PlayerResponse createPlayer(CreatePlayerRequest request, Auth auth) {
         // Use clubId from request if provided, otherwise use authenticated user's clubId
         String clubId = (request.getClubId() != null && !request.getClubId().isEmpty()) 
@@ -163,18 +166,12 @@ public class PlayerService {
     }
 
     public PlayerResponse updatePlayerWithToken(String id, String token, CreatePlayerRequest request) {
-        if (token == null || token.isBlank() || !jwtTokenProvider.validateToken(token)) {
-            throw new SecurityException("Token is invalid");
-        }
-        String tokenSubject = jwtTokenProvider.getUserIdFromToken(token);
-        if (!id.equals(tokenSubject)) {
-            throw new SecurityException("Token is invalid");
-        }
+        jwtTokenProvider.validateTokenForPlayerInvite(token, id);
 
         Player player = playerRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException(ErrorMessages.PLAYER_NOT_FOUND));
-        if (!Boolean.TRUE.equals(player.getIsActive())) {
-            throw new IllegalArgumentException(ErrorMessages.PLAYER_NOT_FOUND);
+        if (isInviteProfileSubmitted(player)) {
+            throw new IllegalArgumentException(ErrorMessages.PLAYER_INVITE_ALREADY_SUBMITTED);
         }
 
         if (request != null) {
@@ -187,7 +184,7 @@ public class PlayerService {
             player.setClubId(existingClubId);
             player.setSeasonId(existingSeasonId);
             player.setCreatedBy(existingCreatedBy);
-            player.setIsActive(Boolean.TRUE.equals(player.getIsActive()));
+            player.setIsActive(true);
             if (request.getProfileImage() == null || request.getProfileImage().isEmpty()) {
                 player.setProfileImage(existingProfileImage);
             }
@@ -276,8 +273,9 @@ public class PlayerService {
             }
         }
         List<Player> existingPlayers = playerRepository.findAll().stream()
-                .filter(p -> requests.stream().anyMatch(r -> 
-                    r.getEmail().equals(p.getEmail()) && 
+                .filter(p -> Boolean.TRUE.equals(p.getIsActive()) &&
+                        requests.stream().anyMatch(r ->
+                    r.getEmail().equals(p.getEmail()) &&
                     r.getClubId().equals(p.getClubId()) &&
                     auth.getSeasonId().equals(p.getSeasonId())))
                 .collect(Collectors.toList());
@@ -366,7 +364,7 @@ public class PlayerService {
             }
         }
 
-        String token = jwtTokenProvider.generateToken(player.getId());
+        String token = jwtTokenProvider.generateToken(player.getId(), jwtInviteExpiration);
         String inviteLink = frontendUrl + "#/add/player-details/" + player.getId() + "/" + targetClubId + "/" + token;
 
         Map<String, String> templateData = new HashMap<>();
@@ -396,12 +394,16 @@ public class PlayerService {
 
     public boolean checkEmailAvailability(String email, String clubId) {
         Optional<Player> existing = playerRepository.findByEmail(email)
-                .filter(p -> clubId.equals(p.getClubId()));
+                .filter(p -> clubId.equals(p.getClubId()) && Boolean.TRUE.equals(p.getIsActive()));
         return existing.isEmpty();
     }
 
     public boolean checkPhoneAvailability(String phone, String clubId) {
-        Optional<Player> existing = playerRepository.findByClubIdAndPhone(clubId, phone);
+        if (phone == null || phone.isBlank()) {
+            return true;
+        }
+        Optional<Player> existing = playerRepository.findByClubIdAndPhone(clubId, phone)
+                .filter(p -> Boolean.TRUE.equals(p.getIsActive()));
         return existing.isEmpty();
     }
 
@@ -488,13 +490,12 @@ public class PlayerService {
     }
 
     public PlayerResponse getPlayerByIdWithToken(String id, String token) {
-        Player player = playerRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Player not found"));
+        jwtTokenProvider.validateTokenForPlayerInvite(token, id);
 
-        if (token != null && !token.isEmpty()) {
-            if (!jwtTokenProvider.validateToken(token)) {
-                throw new IllegalArgumentException("Token is invalid");
-            }
+        Player player = playerRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException(ErrorMessages.PLAYER_NOT_FOUND));
+        if (isInviteProfileSubmitted(player)) {
+            throw new IllegalArgumentException(ErrorMessages.PLAYER_INVITE_ALREADY_SUBMITTED);
         }
 
         PlayerResponse response = mapToResponse(player);
@@ -613,6 +614,12 @@ public class PlayerService {
         String normalized = search.trim();
         if (normalized.isEmpty() || "undefined".equalsIgnoreCase(normalized) || normalized.length() < 2) return null;
         return normalized;
+    }
+
+    private boolean isInviteProfileSubmitted(Player player) {
+        return Boolean.TRUE.equals(player.getIsActive())
+                && player.getFirstName() != null && !player.getFirstName().isBlank()
+                && player.getLastName() != null && !player.getLastName().isBlank();
     }
 
     public record PagedPlayersResult(
