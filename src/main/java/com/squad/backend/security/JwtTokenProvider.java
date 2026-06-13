@@ -1,6 +1,7 @@
 package com.squad.backend.security;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -66,6 +67,26 @@ public class JwtTokenProvider {
             return true;
         } catch (JwtException | IllegalArgumentException e) {
             return false;
+        }
+    }
+
+    public void validateTokenForPlayerInvite(String token, String playerId) {
+        if (token == null || token.isBlank()) {
+            throw new SecurityException(com.squad.backend.constants.ErrorMessages.TOKEN_INVALID);
+        }
+        try {
+            Claims claims = Jwts.parser()
+                    .verifyWith(getSigningKey())
+                    .build()
+                    .parseSignedClaims(token)
+                    .getPayload();
+            if (!playerId.equals(claims.getSubject())) {
+                throw new SecurityException(com.squad.backend.constants.ErrorMessages.TOKEN_INVALID);
+            }
+        } catch (ExpiredJwtException e) {
+            throw new SecurityException(com.squad.backend.constants.ErrorMessages.PLAYER_INVITE_LINK_EXPIRED);
+        } catch (JwtException | IllegalArgumentException e) {
+            throw new SecurityException(com.squad.backend.constants.ErrorMessages.TOKEN_INVALID);
         }
     }
 }

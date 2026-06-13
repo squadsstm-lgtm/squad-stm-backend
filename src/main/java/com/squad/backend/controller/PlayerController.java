@@ -181,6 +181,10 @@ public class PlayerController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error(e.getMessage()));
         } catch (IllegalArgumentException e) {
+            if (ErrorMessages.PLAYER_INVITE_ALREADY_SUBMITTED.equals(e.getMessage())) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(ApiResponse.error(e.getMessage()));
+            }
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(ApiResponse.error(e.getMessage()));
         } catch (Exception e) {
@@ -438,7 +442,14 @@ public class PlayerController {
         try {
             PlayerResponse response = playerService.getPlayerByIdWithToken(id, token);
             return ResponseEntity.ok(ApiResponse.success(response));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(e.getMessage()));
         } catch (IllegalArgumentException e) {
+            if (ErrorMessages.PLAYER_INVITE_ALREADY_SUBMITTED.equals(e.getMessage())) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(ApiResponse.error(e.getMessage()));
+            }
             if ("Token is invalid".equals(e.getMessage())) {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                         .body(ApiResponse.error(e.getMessage()));

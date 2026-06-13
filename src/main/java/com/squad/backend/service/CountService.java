@@ -48,12 +48,12 @@ public class CountService {
         Instant startOfMonth = YearMonth.now().atDay(1).atStartOfDay(ZoneOffset.UTC).toInstant();
         long newSessionsThisMonth = sessionRepository.countByClubIdAndSeasonIdAndCreatedAtGreaterThanEqual(clubId, seasonId, startOfMonth);
 
-        int playersInTeams = playerCounts.total - playerCounts.withoutTeam;
+        int playersInTeams = playerCounts.active - playerCounts.withoutTeam;
         int avgPlayersPerTeam = teamCounts.total == 0 ? 0
                 : (int) Math.round((double) playersInTeams / teamCounts.total);
 
         return CountResponse.builder()
-                .playerCount(playerCounts.total)
+                .playerCount(playerCounts.active)
                 .activePlayerCount(playerCounts.active)
                 .inactivePlayerCount(playerCounts.inactive)
                 .playersWithoutTeam(playerCounts.withoutTeam)
@@ -90,11 +90,15 @@ public class CountService {
                         Aggregation.count().as("count"))
                 .as("inactive")
                 .and(
-                        Aggregation.match(withoutTeamCriteria),
+                        Aggregation.match(new Criteria().andOperator(
+                                Criteria.where("isActive").is(true),
+                                withoutTeamCriteria)),
                         Aggregation.count().as("count"))
                 .as("withoutTeam")
                 .and(
-                        Aggregation.match(Criteria.where("createdAt").gte(startOfMonth)),
+                        Aggregation.match(new Criteria().andOperator(
+                                Criteria.where("isActive").is(true),
+                                Criteria.where("createdAt").gte(startOfMonth))),
                         Aggregation.count().as("count"))
                 .as("newThisMonth");
 
