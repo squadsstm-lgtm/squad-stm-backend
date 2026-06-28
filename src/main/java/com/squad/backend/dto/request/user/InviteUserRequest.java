@@ -4,6 +4,7 @@ import lombok.Data;
 
 @Data
 public class InviteUserRequest {
+    private String communicationMethod;
     private String email;
     private String role;
     private String phone;

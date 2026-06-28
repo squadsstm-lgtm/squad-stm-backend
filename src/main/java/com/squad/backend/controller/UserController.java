@@ -8,6 +8,7 @@ import com.squad.backend.dto.response.ClubResponse;
 import com.squad.backend.dto.response.PageMetaResponse;
 import com.squad.backend.dto.response.user.AvailabilityResponse;
 import com.squad.backend.dto.response.user.PagedUsersResponse;
+import com.squad.backend.dto.response.invite.UserInviteResponse;
 import com.squad.backend.dto.response.user.UserResponse;
 import com.squad.backend.model.Auth;
 import com.squad.backend.model.User;
@@ -195,7 +196,7 @@ public class UserController {
                         .body(ApiResponse.error("phone is required."));
             }
             String effectiveClubId = TenantScope.resolveClubForAvailabilityCheck(clubId, auth);
-            boolean available = userService.checkPhoneAvailability(phone, effectiveClubId, userId);
+            boolean available = userService.checkPhoneAvailability(phone, effectiveClubId, userId, auth);
             AvailabilityResponse response = new AvailabilityResponse(available);
             return ResponseEntity.ok(ApiResponse.success(response));
         } catch (IllegalArgumentException e) {
@@ -213,7 +214,7 @@ public class UserController {
     }
 
     @PostMapping("/Invite-User")
-    public ResponseEntity<ApiResponse<User>> inviteUser(
+    public ResponseEntity<ApiResponse<UserInviteResponse>> inviteUser(
             @Valid @RequestBody InviteUserRequest request,
             @AuthenticationPrincipal Auth auth) {
         try {
@@ -221,8 +222,8 @@ public class UserController {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                         .body(ApiResponse.error(ErrorMessages.UNAUTHORIZED));
             }
-            User user = userService.inviteUser(request, auth, auth.getSeasonId());
-            return ResponseEntity.ok(ApiResponse.success(user));
+            UserInviteResponse response = userService.inviteUser(request, auth, auth.getSeasonId());
+            return ResponseEntity.ok(ApiResponse.success(response));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(ApiResponse.error(e.getMessage()));

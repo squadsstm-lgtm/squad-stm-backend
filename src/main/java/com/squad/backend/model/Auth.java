@@ -1,5 +1,6 @@
 package com.squad.backend.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.Version;
@@ -26,9 +27,11 @@ public class Auth {
     
     @Indexed(unique = true)
     private String phone;
-    
+
+    @JsonIgnore
     private String password;
     /** MPIN (hashed) for Club Wallet access. Empty until user sets it. */
+    @JsonIgnore
     private String mpin;
     /** One-time token for forgot MPIN flow. Cleared after use or expiry. */
     private String forgotMpinToken;

@@ -45,6 +45,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.PUT, "/api/players/*/*").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/users/*/*").permitAll()
                 .requestMatchers(HttpMethod.PUT, "/api/users/*/*").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/invite/*").permitAll()
+                .requestMatchers(HttpMethod.PUT, "/api/invite/*/complete").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/requests/*/*").permitAll()
                 .requestMatchers(HttpMethod.PUT, "/api/requests/update").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/payments/create-payment-intent").permitAll()

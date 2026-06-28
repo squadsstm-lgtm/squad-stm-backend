@@ -1,9 +1,12 @@
 package com.squad.backend.service;
 
 import com.squad.backend.constants.ErrorMessages;
+import com.squad.backend.constants.InviteChannel;
+import com.squad.backend.constants.InvitePurpose;
 import com.squad.backend.dto.request.user.CreateUserRequest;
 import com.squad.backend.dto.request.user.InviteUserRequest;
 import com.squad.backend.dto.response.ClubResponse;
+import com.squad.backend.dto.response.invite.UserInviteResponse;
 import com.squad.backend.dto.response.user.UserResponse;
 import com.squad.backend.model.Auth;
 import com.squad.backend.model.Club;
@@ -13,6 +16,8 @@ import com.squad.backend.repository.AuthRepository;
 import com.squad.backend.repository.ClubRepository;
 import com.squad.backend.repository.RoleRepository;
 import com.squad.backend.repository.UserRepository;
+import com.squad.backend.utils.FrontendLinkUtils;
+import com.squad.backend.utils.PhoneUtils;
 import com.squad.backend.security.JwtTokenProvider;
 import com.squad.backend.security.TenantScope;
 import org.springframework.data.domain.PageRequest;
@@ -23,7 +28,9 @@ import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -57,6 +64,13 @@ public class UserService {
 
     @Value("${app.backend-url}")
     private String backendUrl;
+
+    @Value("${jwt.invite-expiration:604800000}")
+    private long jwtInviteExpiration;
+
+    @Autowired
+    @Lazy
+    private InviteTokenService inviteTokenService;
 
     public User createUser(CreateUserRequest request, Auth auth) {
         User existingUser = userRepository.findByEmailAndClubId(request.getEmail(), auth.getClubId()).orElse(null);
@@ -239,11 +253,17 @@ public class UserService {
         if (!id.equals(tokenSubject)) {
             throw new SecurityException("Token is invalid");
         }
+        return completeUserProfile(id, request);
+    }
 
+    public Auth completeUserProfile(String id, CreateUserRequest request) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException(ErrorMessages.USER_NOT_FOUND));
         if (Boolean.TRUE.equals(user.getIsBlocked())) {
             throw new IllegalArgumentException(ErrorMessages.USER_NOT_FOUND);
+        }
+        if (!isPendingUserInvite(user)) {
+            throw new IllegalArgumentException(ErrorMessages.USER_INVITE_ALREADY_SUBMITTED);
         }
 
         String hashedPassword = null;
@@ -302,6 +322,159 @@ public class UserService {
         return authResult;
     }
 
+    public boolean isInviteProfileSubmitted(User user) {
+        if (user == null) {
+            return true;
+        }
+        if (authRepository.findByUserId(user.getId()).isPresent()) {
+            return true;
+        }
+        String clubId = user.getClubId();
+        if (clubId == null) {
+            return false;
+        }
+        if (user.getEmail() != null && !user.getEmail().isBlank()) {
+            if (authRepository.findByEmailAndClubId(user.getEmail().toLowerCase(), clubId).isPresent()) {
+                return true;
+            }
+        }
+        if (user.getPhone() != null && !user.getPhone().isBlank()) {
+            boolean phoneRegistered = authRepository.findByClubId(clubId).stream()
+                    .anyMatch(a -> PhoneUtils.matches(a.getPhone(), user.getPhone()));
+            if (phoneRegistered) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Pending invite stub only — not registered, not completed, not blocked.
+     * Safe to expose limited prefill on public invite resolve.
+     */
+    public boolean isPendingUserInvite(User user) {
+        if (user == null) {
+            return false;
+        }
+        if (Boolean.TRUE.equals(user.getIsBlocked())) {
+            return false;
+        }
+        return !isInviteProfileSubmitted(user) && !hasCompletedProfile(user);
+    }
+
+    /** Channel-specific prefill for pending user invites (no active-user data). */
+    public UserInvitePrefillFields buildUserInvitePrefill(User user, String channel) {
+        String email = null;
+        String phone = null;
+        if (InviteChannel.EMAIL.equalsIgnoreCase(channel)) {
+            if (user.getEmail() != null && !user.getEmail().isBlank()) {
+                email = user.getEmail().trim().toLowerCase();
+            }
+        } else if (InviteChannel.WHATSAPP.equalsIgnoreCase(channel)) {
+            if (user.getPhone() != null && !user.getPhone().isBlank()) {
+                phone = user.getPhone().trim();
+            }
+        }
+        return new UserInvitePrefillFields(email, phone, user.getRole());
+    }
+
+    public record UserInvitePrefillFields(String email, String phone, String role) {
+    }
+
+    private boolean hasCompletedProfile(User user) {
+        return user.getFirstName() != null && !user.getFirstName().isBlank()
+                && user.getLastName() != null && !user.getLastName().isBlank();
+    }
+
+    private boolean shouldExcludePhoneOwner(Auth authRecord, String excludeUserId) {
+        if (excludeUserId == null || authRecord == null) {
+            return false;
+        }
+        return excludeUserId.equals(authRecord.getUserId()) || excludeUserId.equals(authRecord.getId());
+    }
+
+    private boolean shouldExcludePhoneUser(User user, String excludeUserId) {
+        return excludeUserId != null && user != null && excludeUserId.equals(user.getId());
+    }
+
+    private Optional<Auth> findAuthWithPhoneInClub(String clubId, String phone) {
+        if (clubId == null || phone == null || phone.isBlank()) {
+            return Optional.empty();
+        }
+        for (Auth auth : authRepository.findByClubId(clubId)) {
+            if (PhoneUtils.matches(auth.getPhone(), phone)) {
+                return Optional.of(auth);
+            }
+        }
+        for (String variant : PhoneUtils.lookupVariants(phone)) {
+            Optional<Auth> found = authRepository.findByPhone(variant);
+            if (found.isPresent() && clubId.equals(found.get().getClubId())) {
+                return found;
+            }
+        }
+        return Optional.empty();
+    }
+
+    private boolean isPhoneBlockedForInvite(String clubId, String phone, Auth invitingAuth, String excludeUserId) {
+        if (clubId == null || phone == null || phone.isBlank() || invitingAuth == null) {
+            return false;
+        }
+
+        if (invitingAuth.getPhone() != null && PhoneUtils.matches(invitingAuth.getPhone(), phone)) {
+            if (!shouldExcludePhoneOwner(invitingAuth, excludeUserId)) {
+                return true;
+            }
+        }
+
+        if (invitingAuth.getEmail() != null && !invitingAuth.getEmail().isBlank()) {
+            Optional<User> inviterUser = userRepository.findByEmailAndClubId(
+                    invitingAuth.getEmail().toLowerCase(), clubId);
+            if (inviterUser.isPresent()
+                    && PhoneUtils.matches(inviterUser.get().getPhone(), phone)
+                    && !shouldExcludePhoneUser(inviterUser.get(), excludeUserId)) {
+                return true;
+            }
+        }
+
+        Optional<Auth> authMatch = findAuthWithPhoneInClub(clubId, phone);
+        if (authMatch.isPresent() && !shouldExcludePhoneOwner(authMatch.get(), excludeUserId)) {
+            return true;
+        }
+
+        for (User user : userRepository.findByClubId(clubId)) {
+            if (!PhoneUtils.matches(user.getPhone(), phone) || shouldExcludePhoneUser(user, excludeUserId)) {
+                continue;
+            }
+            if (isInviteProfileSubmitted(user) || hasCompletedProfile(user)) {
+                return true;
+            }
+            if (user.getEmail() != null && !user.getEmail().isBlank()
+                    && authRepository.findByEmailAndClubId(user.getEmail().toLowerCase(), clubId).isPresent()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void assertEligibleForUserInvite(String clubId, String email, String phone, Auth invitingAuth) {
+        if (phone != null && !phone.isBlank()) {
+            if (isPhoneBlockedForInvite(clubId, phone, invitingAuth, null)) {
+                throw new IllegalArgumentException(ErrorMessages.PHONE_ALREADY_EXISTS);
+            }
+        }
+        if (email != null && !email.isBlank()) {
+            Optional<Auth> authExists = authRepository.findByEmailAndClubId(email.toLowerCase(), clubId);
+            if (authExists.isPresent()) {
+                throw new IllegalArgumentException("User with this email \"" + email + "\" already exists.");
+            }
+            if (invitingAuth.getEmail() != null
+                    && email.equalsIgnoreCase(invitingAuth.getEmail().trim())) {
+                throw new IllegalArgumentException("You cannot send an invite to your own email address.");
+            }
+        }
+    }
+
     private void mapToModel(CreateUserRequest request, User user) {
         user.setFirstName(request.getFirstName());
         user.setLastName(request.getLastName());
@@ -323,23 +496,25 @@ public class UserService {
         return existing.isEmpty();
     }
 
-    public boolean checkPhoneAvailability(String phone, String clubId, String userId) {
-        List<Auth> auths = authRepository.findByClubId(clubId);
-        Optional<Auth> existing = auths.stream()
-                .filter(a -> phone.equals(a.getPhone()))
-                .findFirst();
-        // When editing a user, exclude their Auth record by User id (frontend sends User _id)
-        if (userId != null && existing.isPresent() && userId.equals(existing.get().getUserId())) {
+    public boolean checkPhoneAvailability(String phone, String clubId, String userId, Auth invitingAuth) {
+        if (clubId == null || phone == null || phone.isBlank()) {
             return true;
         }
-        return existing.isEmpty();
+        return !isPhoneBlockedForInvite(clubId, phone, invitingAuth, userId);
     }
 
-    public User inviteUser(InviteUserRequest request, Auth auth, String seasonId) {
-        Optional<Auth> authExists = authRepository.findByEmailAndClubId(request.getEmail(), auth.getClubId());
-        if (authExists.isPresent()) {
-            throw new IllegalArgumentException("User with this email \"" + request.getEmail() + "\" already exists.");
+    public UserInviteResponse inviteUser(InviteUserRequest request, Auth auth, String seasonId) {
+        boolean isWhatsApp = "whatsapp".equalsIgnoreCase(request.getCommunicationMethod());
+        if (isWhatsApp && (request.getPhone() == null || request.getPhone().isBlank())) {
+            throw new IllegalArgumentException("Phone is required for WhatsApp invite");
         }
+        if (!isWhatsApp && (request.getEmail() == null || request.getEmail().isBlank())) {
+            throw new IllegalArgumentException("Email is required for email invite");
+        }
+
+        String normalizedEmail = request.getEmail() != null ? request.getEmail().trim().toLowerCase() : "";
+        String normalizedPhone = request.getPhone() != null ? request.getPhone().trim() : "";
+        assertEligibleForUserInvite(auth.getClubId(), normalizedEmail, normalizedPhone, auth);
 
         if ("Secretary".equals(request.getRole()) || "Treasurer".equals(request.getRole())) {
             List<User> existing = userRepository.findByClubId(auth.getClubId())
@@ -353,36 +528,28 @@ public class UserService {
             }
         }
 
-        Optional<User> userExists = userRepository.findByEmailAndClubId(request.getEmail(), auth.getClubId());
+        User user = findOrCreateInviteUser(request, auth, seasonId, normalizedEmail);
+        UserResponse userResponse = mapToResponse(user);
 
-        User user;
-        if (userExists.isPresent()) {
-            user = userExists.get();
-            user.setRole(request.getRole());
-            if (request.getPhone() != null && !request.getPhone().isEmpty()) {
-                user.setPhone(request.getPhone());
-            }
-            userRepository.save(user);
-        } else {
-            user = new User();
-            user.setClubId(auth.getClubId());
-            user.setSeasonId(seasonId);
-            user.setFirstName("");
-            user.setLastName("");
-            user.setUserName("");
-            user.setEmail(request.getEmail().toLowerCase());
-            user.setRole(request.getRole());
-            user.setPhone(request.getPhone() != null ? request.getPhone() : "");
-            user.setIsBlocked(false);
-            user.setCreatedBy(auth.getId());
-            user.setUpdatedBy("");
-            user.setCreatedAt(Instant.now());
-            user.setUpdatedAt(Instant.now());
-            user = userRepository.save(user);
+        if (isWhatsApp) {
+            InviteTokenService.InviteLinkResult link = inviteTokenService.createToken(
+                    InvitePurpose.USER_PROFILE,
+                    user.getId(),
+                    auth.getClubId(),
+                    seasonId,
+                    InviteChannel.WHATSAPP,
+                    auth.getId());
+            return UserInviteResponse.builder()
+                    .user(userResponse)
+                    .inviteLink(link.inviteLink())
+                    .inviteCode(link.inviteCode())
+                    .expiresAt(link.expiresAt())
+                    .build();
         }
 
-        String token = jwtTokenProvider.generateToken(user.getId());
-        String inviteLink = frontendUrl + "#/add/user-details/" + user.getId() + "/" + token;
+        String token = jwtTokenProvider.generateToken(user.getId(), jwtInviteExpiration);
+        String inviteLink = FrontendLinkUtils.hashLink(frontendUrl,
+                "add/user-details/" + user.getId() + "/" + token);
 
         Map<String, String> templateData = new HashMap<>();
         templateData.put("emailTitle", "Squad STM Invitation");
@@ -394,19 +561,63 @@ public class UserService {
         templateData.put("additionalInfo", "Please ensure to provide accurate information as it will be used for system access and communication purposes.");
         templateData.put("footerMessage", "If you believe this invitation was sent in error, please ignore this email.");
 
-        if (request.getEmail() != null && !request.getEmail().trim().isEmpty()) {
-            boolean mailSent = emailService.sendEmail(
-                    request.getEmail(),
-                    "Squad STM Invitation",
-                    (auth.getFirstName() != null ? auth.getFirstName() : "Squad STM") + " has invited you to join Squad STM as " + request.getRole() + ". Please complete your profile information.",
-                    templateData
-            );
-            if (!mailSent) {
-                throw new RuntimeException("Mail sending error.");
-            }
+        boolean mailSent = emailService.sendEmail(
+                normalizedEmail,
+                "Squad STM Invitation",
+                (auth.getFirstName() != null ? auth.getFirstName() : "Squad STM") + " has invited you to join Squad STM as " + request.getRole() + ". Please complete your profile information.",
+                templateData
+        );
+        if (!mailSent) {
+            throw new RuntimeException("Mail sending error.");
         }
 
-        return user;
+        return UserInviteResponse.builder()
+                .user(userResponse)
+                .build();
+    }
+
+    private User findOrCreateInviteUser(InviteUserRequest request, Auth auth, String seasonId, String normalizedEmail) {
+        Optional<User> userExists = Optional.empty();
+        if (!normalizedEmail.isBlank()) {
+            userExists = userRepository.findByEmailAndClubId(normalizedEmail, auth.getClubId());
+        }
+        if (userExists.isEmpty() && request.getPhone() != null && !request.getPhone().isBlank()) {
+            userExists = userRepository.findByClubId(auth.getClubId()).stream()
+                    .filter(u -> PhoneUtils.matches(u.getPhone(), request.getPhone()))
+                    .findFirst();
+        }
+
+        if (userExists.isPresent()) {
+            User user = userExists.get();
+            if (isInviteProfileSubmitted(user) || hasCompletedProfile(user)) {
+                throw new IllegalArgumentException(
+                        "This user has already completed their profile. Cannot send a new invite.");
+            }
+            user.setRole(request.getRole());
+            if (request.getPhone() != null && !request.getPhone().isEmpty()) {
+                user.setPhone(request.getPhone());
+            }
+            if (!normalizedEmail.isBlank()) {
+                user.setEmail(normalizedEmail);
+            }
+            return userRepository.save(user);
+        }
+
+        User user = new User();
+        user.setClubId(auth.getClubId());
+        user.setSeasonId(seasonId);
+        user.setFirstName("");
+        user.setLastName("");
+        user.setUserName("");
+        user.setEmail(normalizedEmail);
+        user.setRole(request.getRole());
+        user.setPhone(request.getPhone() != null ? request.getPhone() : "");
+        user.setIsBlocked(false);
+        user.setCreatedBy(auth.getId());
+        user.setUpdatedBy("");
+        user.setCreatedAt(Instant.now());
+        user.setUpdatedAt(Instant.now());
+        return userRepository.save(user);
     }
 
     public List<ClubResponse> getAllClubs() {
