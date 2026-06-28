@@ -6,6 +6,7 @@ import com.squad.backend.dto.request.player.InvitePlayerRequest;
 import com.squad.backend.dto.response.ApiResponse;
 import com.squad.backend.dto.response.PageMetaResponse;
 import com.squad.backend.dto.response.player.PagedPlayersResponse;
+import com.squad.backend.dto.response.invite.PlayerInviteResponse;
 import com.squad.backend.dto.response.player.PlayerResponse;
 import com.squad.backend.model.Auth;
 import com.squad.backend.security.TenantScope;
@@ -246,7 +247,7 @@ public class PlayerController {
     }
 
     @PostMapping("/request-info")
-    public ResponseEntity<ApiResponse<PlayerResponse>> invitePlayer(
+    public ResponseEntity<ApiResponse<PlayerInviteResponse>> invitePlayer(
             @Valid @RequestBody InvitePlayerRequest request,
             @RequestParam(required = false) String clubId,
             @AuthenticationPrincipal Auth auth) {
@@ -255,12 +256,15 @@ public class PlayerController {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                         .body(ApiResponse.error(ErrorMessages.UNAUTHORIZED));
             }
-            String targetClubId = request.getClubId() != null ? request.getClubId() : 
+            String targetClubId = request.getClubId() != null ? request.getClubId() :
                     (clubId != null ? clubId : auth.getClubId());
-            PlayerResponse response = playerService.invitePlayer(
-                    request.getEmail(), 
-                    request.getPhone(), 
-                    targetClubId, 
+            String communicationMethod = request.getCommunicationMethod() != null
+                    ? request.getCommunicationMethod() : "email";
+            PlayerInviteResponse response = playerService.invitePlayer(
+                    communicationMethod,
+                    request.getEmail(),
+                    request.getPhone(),
+                    targetClubId,
                     auth);
             return ResponseEntity.ok(ApiResponse.success(response));
         } catch (IllegalArgumentException e) {

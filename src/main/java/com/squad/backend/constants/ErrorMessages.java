@@ -28,6 +28,10 @@ public class ErrorMessages {
     public static final String PLAYER_PROFILE_COMPLETED = "This player has already completed their profile. Please use Edit instead of Add.";
     public static final String PLAYER_INVITE_ALREADY_SUBMITTED = "This form has already been submitted.";
     public static final String PLAYER_INVITE_LINK_EXPIRED = "This invite link has expired. Please contact your club administrator for a new invitation.";
+    public static final String INVITE_LINK_INVALID = "Invalid invite link";
+    public static final String INVITE_LINK_REVOKED = "This link is no longer valid";
+    public static final String USER_INVITE_ALREADY_SUBMITTED = "This form has already been submitted.";
+    public static final String USER_INVITE_LINK_EXPIRED = "This invite link has expired. Please contact your club administrator for a new invitation.";
     public static final String PLAYER_HAS_ACTIVE_SESSION = "This Player have active session.";
     
     public static final String TEAM_NOT_FOUND = "Team not found";

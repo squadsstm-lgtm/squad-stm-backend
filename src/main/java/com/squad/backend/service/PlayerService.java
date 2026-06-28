@@ -1,7 +1,10 @@
 package com.squad.backend.service;
 
 import com.squad.backend.constants.ErrorMessages;
+import com.squad.backend.constants.InviteChannel;
+import com.squad.backend.constants.InvitePurpose;
 import com.squad.backend.dto.request.player.CreatePlayerRequest;
+import com.squad.backend.dto.response.invite.PlayerInviteResponse;
 import com.squad.backend.dto.response.player.PlayerResponse;
 import com.squad.backend.model.Auth;
 import com.squad.backend.model.Club;
@@ -12,11 +15,15 @@ import com.squad.backend.repository.ClubRepository;
 import com.squad.backend.repository.PlayerRepository;
 import com.squad.backend.repository.SessionRepository;
 import com.squad.backend.repository.TeamRepository;
+import com.squad.backend.utils.FrontendLinkUtils;
+import com.squad.backend.utils.PhoneUtils;
 import com.squad.backend.security.JwtTokenProvider;
 import com.squad.backend.security.TenantScope;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -51,6 +58,10 @@ public class PlayerService {
 
     @Value("${jwt.invite-expiration}")
     private long jwtInviteExpiration;
+
+    @Autowired
+    @Lazy
+    private InviteTokenService inviteTokenService;
 
     public PlayerResponse createPlayer(CreatePlayerRequest request, Auth auth) {
         // Use clubId from request if provided, otherwise use authenticated user's clubId
@@ -167,7 +178,42 @@ public class PlayerService {
 
     public PlayerResponse updatePlayerWithToken(String id, String token, CreatePlayerRequest request) {
         jwtTokenProvider.validateTokenForPlayerInvite(token, id);
+        Player player = playerRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException(ErrorMessages.PLAYER_NOT_FOUND));
+        if (isPendingPlayerInvite(player)) {
+            return completePlayerProfile(id, request);
+        }
+        return updateExistingPlayerViaToken(player, request);
+    }
 
+    private PlayerResponse updateExistingPlayerViaToken(Player player, CreatePlayerRequest request) {
+        if (request == null) {
+            PlayerResponse response = mapToResponse(player);
+            enrichWithClubAndTeamNames(player, response);
+            return response;
+        }
+        String existingClubId = player.getClubId();
+        String existingSeasonId = player.getSeasonId();
+        String existingProfileImage = player.getProfileImage();
+        String existingCreatedBy = player.getCreatedBy();
+
+        mapToModel(request, player);
+        player.setClubId(existingClubId);
+        player.setSeasonId(existingSeasonId);
+        player.setCreatedBy(existingCreatedBy);
+        player.setIsActive(true);
+        if (request.getProfileImage() == null || request.getProfileImage().isEmpty()) {
+            player.setProfileImage(existingProfileImage);
+        }
+        player.setUpdatedBy(player.getId());
+        player = playerRepository.save(player);
+
+        PlayerResponse response = mapToResponse(player);
+        enrichWithClubAndTeamNames(player, response);
+        return response;
+    }
+
+    public PlayerResponse completePlayerProfile(String id, CreatePlayerRequest request) {
         Player player = playerRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException(ErrorMessages.PLAYER_NOT_FOUND));
         if (isInviteProfileSubmitted(player)) {
@@ -192,7 +238,60 @@ public class PlayerService {
             player = playerRepository.save(player);
         }
 
-        return mapToResponse(player);
+        PlayerResponse response = mapToResponse(player);
+        enrichWithClubAndTeamNames(player, response);
+        return response;
+    }
+
+    public boolean isInviteProfileSubmitted(Player player) {
+        return Boolean.TRUE.equals(player.getIsActive())
+                && player.getFirstName() != null && !player.getFirstName().isBlank()
+                && player.getLastName() != null && !player.getLastName().isBlank();
+    }
+
+    /** Open invite stub — not yet an active completed player profile. */
+    public boolean isPendingPlayerInvite(Player player) {
+        return player != null && !isInviteProfileSubmitted(player);
+    }
+
+    /** Channel-specific prefill for pending player invites (public /i/{code} flow only). */
+    public PlayerInvitePrefillFields buildPlayerInvitePrefill(Player player, String channel) {
+        String email = null;
+        String phone = null;
+        if (InviteChannel.EMAIL.equalsIgnoreCase(channel)) {
+            if (player.getEmail() != null && !player.getEmail().isBlank()) {
+                email = player.getEmail().trim().toLowerCase();
+            }
+        } else if (InviteChannel.WHATSAPP.equalsIgnoreCase(channel)) {
+            if (player.getPhone() != null && !player.getPhone().isBlank()) {
+                phone = player.getPhone().trim();
+            }
+        }
+        return new PlayerInvitePrefillFields(email, phone);
+    }
+
+    public record PlayerInvitePrefillFields(String email, String phone) {
+    }
+
+    private boolean isPhoneBlockedForPlayerInvite(String clubId, String phone) {
+        if (clubId == null || phone == null || phone.isBlank()) {
+            return false;
+        }
+        return playerRepository.findByClubId(clubId).stream()
+                .anyMatch(p -> PhoneUtils.matches(p.getPhone(), phone) && isInviteProfileSubmitted(p));
+    }
+
+    private void assertEligibleForPlayerInvite(String clubId, String email, String phone) {
+        if (email != null && !email.isBlank()) {
+            Optional<Player> existing = playerRepository.findByEmail(email.trim().toLowerCase())
+                    .filter(p -> clubId.equals(p.getClubId()) && isInviteProfileSubmitted(p));
+            if (existing.isPresent()) {
+                throw new IllegalArgumentException(ErrorMessages.PLAYER_PROFILE_COMPLETED);
+            }
+        }
+        if (phone != null && !phone.isBlank() && isPhoneBlockedForPlayerInvite(clubId, phone)) {
+            throw new IllegalArgumentException(ErrorMessages.PHONE_ALREADY_EXISTS);
+        }
     }
 
     public void deletePlayer(String id, Auth auth) {
@@ -312,60 +411,48 @@ public class PlayerService {
                 .collect(Collectors.toList());
     }
 
-    public PlayerResponse invitePlayer(String email, String phone, String clubId, Auth auth) {
+    public PlayerInviteResponse invitePlayer(String communicationMethod, String email, String phone, String clubId, Auth auth) {
+        boolean isWhatsApp = "whatsapp".equalsIgnoreCase(communicationMethod);
+        if (isWhatsApp && (phone == null || phone.isBlank())) {
+            throw new IllegalArgumentException("Phone is required for WhatsApp invite");
+        }
+        if (!isWhatsApp && (email == null || email.isBlank())) {
+            throw new IllegalArgumentException("Email is required for email invite");
+        }
+
         String targetClubId = clubId != null ? clubId : auth.getClubId();
         if (TenantScope.denyClubOnly(auth, targetClubId)) {
             throw new IllegalArgumentException(ErrorMessages.FORBIDDEN);
         }
 
-        Optional<Player> existingPlayer = playerRepository.findByEmail(email)
-                .filter(p -> targetClubId.equals(p.getClubId()));
+        String normalizedEmail = email != null ? email.trim().toLowerCase() : "";
+        String normalizedPhone = phone != null ? phone.trim() : "";
+        assertEligibleForPlayerInvite(targetClubId, normalizedEmail, normalizedPhone);
 
-        Player player;
-        if (existingPlayer.isPresent()) {
-            player = existingPlayer.get();
-            if (phone != null && !phone.isEmpty()) {
-                player.setPhone(phone);
-                playerRepository.save(player);
-            }
-        } else {
-            Optional<Player> uncategorizedPlayer = playerRepository.findUncategorizedByEmail(email);
-            
-            if (uncategorizedPlayer.isPresent()) {
-                player = uncategorizedPlayer.get();
-                player.setClubId(targetClubId);
-                if (phone != null && !phone.isEmpty()) {
-                    player.setPhone(phone);
-                }
-                playerRepository.save(player);
-            } else {
-                player = new Player();
-                player.setClubId(targetClubId);
-                player.setSeasonId(auth.getSeasonId());
-                player.setTeams(new HashMap<>()); // Initialize empty teams map
-                player.setFirstName("");
-                player.setLastName("");
-                player.setEmail(email);
-                player.setPhone(phone != null ? phone : "");
-                player.setParentName("");
-                player.setParentEmail("");
-                player.setEmContact("");
-                player.setEmPhone("");
-                player.setClubs("");
-                player.setConsentGiven("");
-                player.setStatus("");
-                player.setPhotoUploaded("");
-                player.setIsActive(false);
-                player.setCreatedBy(auth.getId());
-                player.setUpdatedBy("");
-                player.setCreatedAt(Instant.now());
-                player.setUpdatedAt(Instant.now());
-                player = playerRepository.save(player);
-            }
+        Player player = findOrCreateInvitePlayer(normalizedEmail, normalizedPhone, targetClubId, auth);
+
+        PlayerResponse playerResponse = mapToResponse(player);
+        enrichWithClubAndTeamNames(player, playerResponse);
+
+        if (isWhatsApp) {
+            InviteTokenService.InviteLinkResult link = inviteTokenService.createToken(
+                    InvitePurpose.PLAYER_PROFILE,
+                    player.getId(),
+                    targetClubId,
+                    auth.getSeasonId(),
+                    InviteChannel.WHATSAPP,
+                    auth.getId());
+            return PlayerInviteResponse.builder()
+                    .player(playerResponse)
+                    .inviteLink(link.inviteLink())
+                    .inviteCode(link.inviteCode())
+                    .expiresAt(link.expiresAt())
+                    .build();
         }
 
         String token = jwtTokenProvider.generateToken(player.getId(), jwtInviteExpiration);
-        String inviteLink = frontendUrl + "#/add/player-details/" + player.getId() + "/" + targetClubId + "/" + token;
+        String inviteLink = FrontendLinkUtils.hashLink(frontendUrl,
+                "add/player-details/" + player.getId() + "/" + targetClubId + "/" + token);
 
         Map<String, String> templateData = new HashMap<>();
         templateData.put("emailTitle", "Squad STM Player Request");
@@ -377,19 +464,81 @@ public class PlayerService {
         templateData.put("additionalInfo", "Important: Please ensure to provide accurate information as it will be used for team registration and communication purposes.");
         templateData.put("footerMessage", "If you believe this request was sent in error, please ignore this email.");
 
-        if (email != null && !email.trim().isEmpty()) {
-            boolean mailSent = emailService.sendEmail(
-                    email,
-                    "Squad STM Player Request",
-                    (auth.getFirstName() != null ? auth.getFirstName() : "Squad STM") + " has requested you to complete your player information for Squad STM.",
-                    templateData
-            );
-            if (!mailSent) {
-                throw new RuntimeException("Mail sending error.");
+        boolean mailSent = emailService.sendEmail(
+                normalizedEmail,
+                "Squad STM Player Request",
+                (auth.getFirstName() != null ? auth.getFirstName() : "Squad STM") + " has requested you to complete your player information for Squad STM.",
+                templateData
+        );
+        if (!mailSent) {
+            throw new RuntimeException("Mail sending error.");
+        }
+
+        return PlayerInviteResponse.builder()
+                .player(playerResponse)
+                .build();
+    }
+
+    private Player findOrCreateInvitePlayer(String email, String phone, String targetClubId, Auth auth) {
+        Optional<Player> existingPlayer = Optional.empty();
+        if (email != null && !email.isBlank()) {
+            existingPlayer = playerRepository.findByEmail(email)
+                    .filter(p -> targetClubId.equals(p.getClubId()));
+        }
+        if (existingPlayer.isEmpty() && phone != null && !phone.isBlank()) {
+            existingPlayer = playerRepository.findByClubId(targetClubId).stream()
+                    .filter(p -> PhoneUtils.matches(p.getPhone(), phone))
+                    .findFirst();
+        }
+
+        if (existingPlayer.isPresent()) {
+            Player player = existingPlayer.get();
+            if (isInviteProfileSubmitted(player)) {
+                throw new IllegalArgumentException(ErrorMessages.PLAYER_PROFILE_COMPLETED);
+            }
+            if (phone != null && !phone.isEmpty()) {
+                player.setPhone(phone);
+            }
+            if (email != null && !email.isBlank()) {
+                player.setEmail(email);
+            }
+            return playerRepository.save(player);
+        }
+
+        if (email != null && !email.isBlank()) {
+            Optional<Player> uncategorizedPlayer = playerRepository.findUncategorizedByEmail(email);
+            if (uncategorizedPlayer.isPresent()) {
+                Player player = uncategorizedPlayer.get();
+                player.setClubId(targetClubId);
+                if (phone != null && !phone.isEmpty()) {
+                    player.setPhone(phone);
+                }
+                return playerRepository.save(player);
             }
         }
 
-        return mapToResponse(player);
+        Player player = new Player();
+        player.setClubId(targetClubId);
+        player.setSeasonId(auth.getSeasonId());
+        player.setTeams(new HashMap<>());
+        player.setFirstName("");
+        player.setLastName("");
+        player.setEmail(email != null ? email : "");
+        player.setPhone(phone != null ? phone : "");
+        player.setParentName("");
+        player.setParentEmail("");
+        player.setEmContact("");
+        player.setEmPhone("");
+        player.setClubs("");
+        player.setConsentGiven("");
+        player.setStatus("");
+        player.setPhotoUploaded("");
+        player.setIsActive(false);
+        player.setCreatedBy(auth.getId());
+        player.setUpdatedBy("");
+        player.setCreatedAt(Instant.now());
+        player.setUpdatedAt(Instant.now());
+        return playerRepository.save(player);
     }
 
     public boolean checkEmailAvailability(String email, String clubId) {
@@ -402,9 +551,8 @@ public class PlayerService {
         if (phone == null || phone.isBlank()) {
             return true;
         }
-        Optional<Player> existing = playerRepository.findByClubIdAndPhone(clubId, phone)
-                .filter(p -> Boolean.TRUE.equals(p.getIsActive()));
-        return existing.isEmpty();
+        return playerRepository.findByClubId(clubId).stream()
+                .noneMatch(p -> PhoneUtils.matches(p.getPhone(), phone) && isInviteProfileSubmitted(p));
     }
 
     public PagedPlayersResult getUncategorizedPlayersPaged(String clubId, String seasonId, String search, int pageNumber, int pageSize) {
@@ -494,9 +642,6 @@ public class PlayerService {
 
         Player player = playerRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException(ErrorMessages.PLAYER_NOT_FOUND));
-        if (isInviteProfileSubmitted(player)) {
-            throw new IllegalArgumentException(ErrorMessages.PLAYER_INVITE_ALREADY_SUBMITTED);
-        }
 
         PlayerResponse response = mapToResponse(player);
         enrichWithClubAndTeamNames(player, response);
@@ -614,12 +759,6 @@ public class PlayerService {
         String normalized = search.trim();
         if (normalized.isEmpty() || "undefined".equalsIgnoreCase(normalized) || normalized.length() < 2) return null;
         return normalized;
-    }
-
-    private boolean isInviteProfileSubmitted(Player player) {
-        return Boolean.TRUE.equals(player.getIsActive())
-                && player.getFirstName() != null && !player.getFirstName().isBlank()
-                && player.getLastName() != null && !player.getLastName().isBlank();
     }
 
     public record PagedPlayersResult(
