@@ -321,6 +321,29 @@ public class SessionController {
         }
     }
 
+    @PostMapping("/{id}/send-confirmations")
+    public ResponseEntity<ApiResponse<com.squad.backend.dto.response.session.SendSessionConfirmationsResponse>> sendConfirmations(
+            @PathVariable String id,
+            @Valid @RequestBody com.squad.backend.dto.request.session.SendSessionConfirmationsRequest request,
+            @AuthenticationPrincipal Auth auth) {
+        try {
+            if (auth == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(ApiResponse.error(ErrorMessages.UNAUTHORIZED));
+            }
+            com.squad.backend.dto.response.session.SendSessionConfirmationsResponse response =
+                    sessionService.sendConfirmations(id, request.getCommunicationMethod(), auth);
+            return ResponseEntity.ok(ApiResponse.success(response));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(e.getMessage()));
+        } catch (Exception e) {
+            log.error("Send session confirmations error: ", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error(ErrorMessages.AN_ERROR_OCCURRED));
+        }
+    }
+
     @DeleteMapping("/removePlayer")
     public ResponseEntity<ApiResponse<Void>> removePlayerFromSession(
             @RequestParam String sessionId,

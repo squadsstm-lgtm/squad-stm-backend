@@ -260,7 +260,16 @@ public class ConfirmationRequestController {
                     .map(request -> confirmationRequestService.sendPaymentRequest(request, auth))
                     .collect(Collectors.toList());
 
-            return ResponseEntity.ok(ApiResponse.success(results, "Payment requests sent successfully"));
+            boolean anyWhatsApp = requests.stream()
+                    .anyMatch(r -> r.getCommunicationMethod() != null
+                            && "whatsapp".equalsIgnoreCase(r.getCommunicationMethod().trim()));
+            String message = anyWhatsApp
+                    ? "Payment link ready to share on WhatsApp"
+                    : "Payment request sent successfully";
+
+            return ResponseEntity.ok(ApiResponse.success(results, message));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
         } catch (Exception e) {
             log.error("Send payment request error: ", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)

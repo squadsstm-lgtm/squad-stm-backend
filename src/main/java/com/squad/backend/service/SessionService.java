@@ -61,11 +61,7 @@ public class SessionService {
         session.setCreatedBy(auth.getId());
         session.setUpdatedBy("");
         Session saved = sessionRepository.save(session);
-        
-        if (Boolean.TRUE.equals(request.getActive())) {
-            confirmationRequestService.sendConfirmationRequestsForSession(saved, auth);
-        }
-        
+        // Confirmation invites are sent explicitly via send-confirmations (email/WhatsApp).
         return mapToResponse(saved);
     }
 
@@ -95,12 +91,15 @@ public class SessionService {
 
         String normalizedStatus = normalizeStatus(status);
         if (normalizedStatus != null) {
-            Set<String> completedSessionIds = confirmationRequestRepository
-                    .findByClubIdAndSeasonIdAndAttendanceMarkedAtNotNull(clubId, seasonId)
-                    .stream()
-                    .map(ConfirmationRequest::getSessionId)
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toSet());
+            // Distinct sessionIds only — avoid loading every confirmation-request document.
+            Query completedQuery = new Query(new Criteria().andOperator(
+                    Criteria.where("clubId").is(clubId),
+                    Criteria.where("seasonId").is(seasonId),
+                    Criteria.where("attendanceMarkedAt").ne(null),
+                    Criteria.where("sessionId").ne(null)
+            ));
+            List<String> completedSessionIds = mongoTemplateClient.findDistinct(
+                    completedQuery, "sessionId", ConfirmationRequest.class, String.class);
 
             if ("completed".equals(normalizedStatus)) {
                 if (completedSessionIds.isEmpty()) {
@@ -124,9 +123,8 @@ public class SessionService {
         Pageable pageable = PageRequest.of(Math.max(pageNumber - 1, 0), pageSize, DEFAULT_SESSION_PAGE_SORT);
         query.with(pageable);
 
-        List<SessionResponse> sessions = mongoTemplateClient.find(query, Session.class).stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+        List<Session> pageSessions = mongoTemplateClient.find(query, Session.class);
+        List<SessionResponse> sessions = mapSessionsToResponses(pageSessions);
 
         int totalPages = pageSize > 0 ? (int) Math.ceil((double) totalItems / pageSize) : 0;
         return new PagedSessionsResult(sessions, totalItems, totalPages, pageNumber, pageSize);
@@ -253,8 +251,9 @@ public class SessionService {
         }
         String seasonId = auth.getSeasonId();
         List<Session> sessions = sessionRepository.findByClubIdAndSeasonIdAndIsActive(clubId, seasonId, true);
+        // Lightweight mapping for calendars / finance filters — no CR fan-out.
         return sessions.stream()
-                .map(this::mapToResponse)
+                .map(this::mapToLightResponse)
                 .collect(Collectors.toList());
     }
 
@@ -343,7 +342,7 @@ public class SessionService {
         sessions.addAll(sessionRepository.findByClubIdAndSeasonIdAndIsActiveAndAdditionalPlayersRegex(
                 clubId, seasonId, true, playerId));
 
-        return sessions.stream().distinct().map(this::mapToResponse).collect(Collectors.toList());
+        return mapSessionsToResponses(sessions.stream().distinct().collect(Collectors.toList()));
     }
 
     public List<SessionResponse> getSessionsByTeam(String teamId, String clubId, String seasonId, Auth auth) {
@@ -358,10 +357,8 @@ public class SessionService {
         if (TenantScope.denyClubScopedEntity(auth, team.getClubId(), team.getSeasonId())) {
             throw new IllegalArgumentException(ErrorMessages.FORBIDDEN);
         }
-        return sessionRepository.findByClubIdAndSeasonIdAndIsActiveAndTeamListRegex(
-                clubId, seasonId, true, teamId).stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+        return mapSessionsToResponses(sessionRepository.findByClubIdAndSeasonIdAndIsActiveAndTeamListRegex(
+                clubId, seasonId, true, teamId));
     }
 
     public Map<String, Long> getSessionTypeCount(String teamId, String clubId, String seasonId, Auth auth) {
@@ -400,12 +397,24 @@ public class SessionService {
 
         session.setActive(active);
         Session saved = sessionRepository.save(session);
-        
-        if (Boolean.TRUE.equals(active)) {
-            confirmationRequestService.sendConfirmationRequestsForSession(saved, auth);
-        }
-        
+        // Confirmation invites are sent explicitly via send-confirmations (email/WhatsApp).
         return mapToResponse(saved);
+    }
+
+    public com.squad.backend.dto.response.session.SendSessionConfirmationsResponse sendConfirmations(
+            String sessionId,
+            String communicationMethod,
+            Auth auth) {
+        Session session = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException(ErrorMessages.SESSION_NOT_FOUND));
+        requireActiveSession(session);
+        if (TenantScope.denyClubScopedEntity(auth, session.getClubId(), session.getSeasonId())) {
+            throw new IllegalArgumentException(ErrorMessages.SESSION_NOT_FOUND);
+        }
+        if (!Boolean.TRUE.equals(session.getActive())) {
+            throw new IllegalArgumentException("Session must be active before sending confirmation invites");
+        }
+        return confirmationRequestService.sendSessionConfirmations(session, communicationMethod, auth);
     }
 
     public void removePlayerFromSession(String sessionId, String playerId, Auth auth) {
@@ -505,14 +514,67 @@ public class SessionService {
         session.setNotes(request.getNotes());
     }
 
+    private List<SessionResponse> mapSessionsToResponses(List<Session> sessions) {
+        if (sessions == null || sessions.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<String> sessionIds = sessions.stream()
+                .map(Session::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+
+        Map<String, List<ConfirmationRequest>> requestsBySession = sessionIds.isEmpty()
+                ? Map.of()
+                : confirmationRequestRepository.findBySessionIdIn(sessionIds).stream()
+                    .collect(Collectors.groupingBy(ConfirmationRequest::getSessionId));
+
+        List<SessionResponse> responses = new ArrayList<>(sessions.size());
+        for (Session session : sessions) {
+            List<ConfirmationRequest> requests = requestsBySession.getOrDefault(session.getId(), Collections.emptyList());
+            responses.add(buildSessionResponse(session, requests));
+        }
+        return responses;
+    }
+
     private SessionResponse mapToResponse(Session session) {
-        int confirmedCount = confirmationRequestRepository.findBySessionId(session.getId()).size();
+        List<ConfirmationRequest> requests = confirmationRequestRepository.findBySessionId(session.getId());
+        return buildSessionResponse(session, requests);
+    }
+
+    private SessionResponse mapToLightResponse(Session session) {
+        return SessionResponse.builder()
+                .id(session.getId())
+                .seasonId(session.getSeasonId())
+                .clubId(session.getClubId())
+                .active(session.getActive())
+                .sessionName(session.getSessionName())
+                .sessionType(session.getSessionType())
+                .location(session.getLocation())
+                .teamList(session.getTeamList())
+                .date(session.getDate())
+                .price(session.getPrice())
+                .additionalPlayers(session.getAdditionalPlayers())
+                .notes(session.getNotes())
+                .isActive(session.getIsActive())
+                .confirmedCount(0)
+                .pendingCount(0)
+                .attendanceMarked(false)
+                .attendanceMarkedAt(null)
+                .attendanceMarkedBy(null)
+                .attendanceMarkedByName(null)
+                .build();
+    }
+
+    private SessionResponse buildSessionResponse(Session session, List<ConfirmationRequest> requests) {
+        int confirmedCount = requests != null ? requests.size() : 0;
         int pendingCount = 0;
 
-        List<ConfirmationRequest> requests = confirmationRequestRepository.findBySessionId(session.getId());
-        Optional<ConfirmationRequest> anyMarked = requests.stream()
-                .filter(r -> r.getAttendanceMarkedAt() != null)
-                .findFirst();
+        Optional<ConfirmationRequest> anyMarked = requests == null
+                ? Optional.empty()
+                : requests.stream()
+                    .filter(r -> r.getAttendanceMarkedAt() != null)
+                    .findFirst();
         Boolean attendanceMarked = anyMarked.isPresent();
         LocalDateTime attendanceMarkedAt = anyMarked.map(ConfirmationRequest::getAttendanceMarkedAt).orElse(null);
         String attendanceMarkedBy = anyMarked.map(ConfirmationRequest::getAttendanceMarkedBy).orElse(null);

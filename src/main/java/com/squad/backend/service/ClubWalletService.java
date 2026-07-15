@@ -9,6 +9,7 @@ import com.squad.backend.dto.request.clubwallet.UpdateWithdrawalRequest;
 import com.squad.backend.dto.response.clubwallet.ClubWalletResponse;
 import com.squad.backend.dto.response.clubwallet.PayoutAccountResponse;
 import com.squad.backend.dto.response.clubwallet.WithdrawalRequestResponse;
+import com.squad.backend.event.ClubWalletUnlockRequestedEvent;
 import com.squad.backend.model.Auth;
 import com.squad.backend.model.ClubWallet;
 import com.squad.backend.model.ConfirmationRequest;
@@ -26,6 +27,7 @@ import com.squad.backend.repository.WithdrawalRequestRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -67,13 +69,14 @@ public class ClubWalletService {
     private final EncryptionService encryptionService;
     private final EmailService emailService;
     private final RoleRepository roleRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Value("${app.frontend-url:http://localhost:4200}")
     private String frontendUrl;
 
-    /** Unlocks eligible earnings, then returns wallet summary for the club. */
+    /** Returns wallet summary quickly; eligible unlock runs asynchronously in the background. */
     public ClubWalletResponse getWallet(String clubId) {
-        unlockEligibleForClub(clubId);
+        eventPublisher.publishEvent(new ClubWalletUnlockRequestedEvent(clubId));
         ClubWallet wallet = getOrCreateWallet(clubId);
         return mapWalletToResponse(wallet);
     }
@@ -224,8 +227,8 @@ public class ClubWalletService {
         for (Transaction t : toUnlock) {
             t.setMoneyLocked(false);
             t.setAvailableForWithdrawal(true);
-            transactionRepository.save(t);
         }
+        transactionRepository.saveAll(toUnlock);
 
         ClubWallet wallet = getOrCreateWallet(clubId);
         wallet.setLockedEarnings(Math.max(0.0, wallet.getLockedEarnings() - totalUnlock));
@@ -545,6 +548,8 @@ public class ClubWalletService {
 
     @Transactional
     public WithdrawalRequestResponse createWithdrawal(CreateWithdrawalRequest request, Auth auth) {
+        // Ensure any newly eligible earnings are unlocked before balance check.
+        unlockEligibleForClub(request.getClubId());
         ClubWallet wallet = getOrCreateWallet(request.getClubId());
 
         if (wallet.getAvailableForWithdrawal() < request.getAmount()) {
