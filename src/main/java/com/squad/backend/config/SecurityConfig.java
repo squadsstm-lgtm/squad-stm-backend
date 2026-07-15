@@ -48,6 +48,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.PUT, "/api/users/*/*").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/invite/*").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/invite/*/select-player").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/invite/*/match-player").permitAll()
                 .requestMatchers(HttpMethod.PUT, "/api/invite/*/complete").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/requests/*/*").permitAll()
                 .requestMatchers(HttpMethod.PUT, "/api/requests/update").permitAll()
