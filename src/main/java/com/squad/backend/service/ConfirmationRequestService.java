@@ -1,6 +1,8 @@
 package com.squad.backend.service;
 
 import com.squad.backend.constants.ErrorMessages;
+import com.squad.backend.constants.InviteChannel;
+import com.squad.backend.constants.InvitePurpose;
 import com.squad.backend.dto.request.confirmationrequest.SendPaymentRequestRequest;
 import com.squad.backend.dto.request.confirmationrequest.UpdatePaymentRequest;
 import com.squad.backend.dto.request.finance.CreateTransactionRequest;
@@ -9,7 +11,9 @@ import com.squad.backend.dto.response.confirmationrequest.ConfirmationRequestRes
 import com.squad.backend.dto.response.confirmationrequest.SendPaymentRequestResponse;
 import com.squad.backend.dto.response.confirmationrequest.UpdatePaymentResponse;
 import com.squad.backend.dto.response.finance.TransactionResponse;
+import com.squad.backend.dto.response.session.SendSessionConfirmationsResponse;
 import com.squad.backend.model.Auth;
+import com.squad.backend.model.Club;
 import com.squad.backend.model.ConfirmationRequest;
 import com.squad.backend.model.Player;
 import com.squad.backend.model.Session;
@@ -19,6 +23,9 @@ import com.squad.backend.repository.PlayerRepository;
 import com.squad.backend.repository.SessionRepository;
 import com.squad.backend.security.JwtTokenProvider;
 import com.squad.backend.utils.AmountParseUtils;
+import com.squad.backend.utils.FrontendLinkUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -53,6 +60,10 @@ public class ConfirmationRequestService {
     private final ClubWalletService clubWalletService;
     private final EmailService emailService;
     private final JwtTokenProvider jwtTokenProvider;
+
+    @Autowired
+    @Lazy
+    private InviteTokenService inviteTokenService;
 
     @Value("${app.frontend-url}")
     private String frontendUrl;
@@ -177,7 +188,34 @@ public class ConfirmationRequestService {
     }
 
     private List<ConfirmationRequestResponse> toResponseList(List<ConfirmationRequest> requests) {
-        return requests.stream().map(this::mapToResponse).collect(Collectors.toList());
+        if (requests == null || requests.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        Set<String> clubIds = new HashSet<>();
+        Set<String> playerIds = new HashSet<>();
+        Set<String> sessionIds = new HashSet<>();
+        for (ConfirmationRequest request : requests) {
+            if (request.getClubId() != null) clubIds.add(request.getClubId());
+            if (request.getPlayerId() != null) playerIds.add(request.getPlayerId());
+            if (request.getSessionId() != null) sessionIds.add(request.getSessionId());
+        }
+
+        Map<String, String> clubNames = clubRepository.findAllById(clubIds).stream()
+                .collect(Collectors.toMap(Club::getId, c -> c.getClubName() != null ? c.getClubName() : "N/A", (a, b) -> a));
+        Map<String, String> playerNames = playerRepository.findAllById(playerIds).stream()
+                .collect(Collectors.toMap(Player::getId, p -> {
+                    String first = p.getFirstName() != null ? p.getFirstName() : "";
+                    String last = p.getLastName() != null ? p.getLastName() : "";
+                    String full = (first + " " + last).trim();
+                    return full.isEmpty() ? "N/A" : full;
+                }, (a, b) -> a));
+        Map<String, String> sessionNames = sessionRepository.findAllById(sessionIds).stream()
+                .collect(Collectors.toMap(Session::getId, s -> s.getSessionName() != null ? s.getSessionName() : "N/A", (a, b) -> a));
+
+        return requests.stream()
+                .map(request -> mapToResponse(request, clubNames, playerNames, sessionNames))
+                .collect(Collectors.toList());
     }
 
     private PageSpec toPageSpec(int pageNumber, int pageSize) {
@@ -203,7 +241,10 @@ public class ConfirmationRequestService {
                 criteriaWithOtherFilters,
                 Criteria.where("payment").is(paymentValue)
         );
-        List<ConfirmationRequest> rows = mongoTemplateClient.find(new Query(sumCriteria), ConfirmationRequest.class);
+        // Project only amount — avoid loading full confirmation-request documents into memory.
+        Query sumQuery = new Query(sumCriteria);
+        sumQuery.fields().include("amount");
+        List<ConfirmationRequest> rows = mongoTemplateClient.find(sumQuery, ConfirmationRequest.class);
         return rows.stream()
                 .mapToDouble(r -> AmountParseUtils.parseToDoubleSafe(r.getAmount()))
                 .sum();
@@ -242,9 +283,7 @@ public class ConfirmationRequestService {
                 .limit(20)
                 .collect(Collectors.toList());
 
-        return requests.stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+        return toResponseList(requests);
     }
 
     public Integer getTotalPayments(String clubId, String seasonId) {
@@ -451,8 +490,40 @@ public class ConfirmationRequestService {
             confirmationRequestRepository.save(existingRequest);
         }
 
-        String verificationToken = jwtTokenProvider.generateToken(requestId);
-        String paymentUrl = frontendUrl + "#/confirmation-request/" + requestId + "/" + verificationToken;
+        String method = requestData.getCommunicationMethod() != null
+                ? requestData.getCommunicationMethod().trim().toLowerCase()
+                : "email";
+        boolean isWhatsApp = "whatsapp".equals(method);
+
+        if (isWhatsApp) {
+            String phone = player.getPhone();
+            if (phone == null || phone.isBlank()) {
+                throw new IllegalArgumentException(
+                        "Player does not have a phone number for WhatsApp. Use Email or update the player profile.");
+            }
+        } else if (player.getEmail() == null || player.getEmail().isBlank()) {
+            throw new IllegalArgumentException(
+                    "Player does not have an email address. Use WhatsApp or update the player profile.");
+        }
+
+        // Short invite-token link: /#/i/{code} (same pattern as player WhatsApp invites)
+        InviteTokenService.InviteLinkResult inviteLink = inviteTokenService.createToken(
+                InvitePurpose.PAYMENT_REQUEST,
+                requestId,
+                auth.getClubId(),
+                auth.getSeasonId(),
+                isWhatsApp ? InviteChannel.WHATSAPP : InviteChannel.EMAIL,
+                auth.getId());
+        String paymentUrl = inviteLink.inviteLink();
+
+        if (isWhatsApp) {
+            return SendPaymentRequestResponse.builder()
+                    .success(true)
+                    .requestId(requestId)
+                    .paymentUrl(paymentUrl)
+                    .message("Payment link ready to share on WhatsApp")
+                    .build();
+        }
 
         Map<String, String> templateData = new HashMap<>();
         templateData.put("emailTitle", "Squad STM - Payment Request");
@@ -504,64 +575,152 @@ public class ConfirmationRequestService {
     }
 
     public void sendConfirmationRequestsForSession(Session session, Auth auth) {
-        try {
-            String sessionId = session.getId();
-            List<String> teamList = session.getTeamList() != null && !session.getTeamList().isEmpty() ?
-                    Arrays.asList(session.getTeamList().split(",")) : new ArrayList<>();
-            List<String> additionalPlayers = session.getAdditionalPlayers() != null && !session.getAdditionalPlayers().isEmpty() ?
-                    Arrays.asList(session.getAdditionalPlayers().split(",")) : new ArrayList<>();
+        List<Player> players = ensureConfirmationRequestsForSession(session, auth);
+        emailConfirmationRequests(session, auth, players);
+    }
 
-            Set<String> allPlayerIds = new HashSet<>();
+    /**
+     * Sends session RSVP invites via email (per-player links) or WhatsApp (one shared short link).
+     */
+    public SendSessionConfirmationsResponse sendSessionConfirmations(
+            Session session,
+            String communicationMethod,
+            Auth auth) {
+        String method = communicationMethod != null ? communicationMethod.trim().toLowerCase() : "";
+        if (!"email".equals(method) && !"whatsapp".equals(method)) {
+            throw new IllegalArgumentException("communicationMethod must be email or whatsapp");
+        }
 
-            for (String teamId : teamList) {
-                com.squad.backend.model.Team team = teamRepository.findById(teamId).orElse(null);
-                if (team != null && Boolean.TRUE.equals(team.getIsActive())
-                        && team.getPlayersList() != null && !team.getPlayersList().isEmpty()) {
-                    allPlayerIds.addAll(Arrays.asList(team.getPlayersList().split(",")));
+        List<Player> players = ensureConfirmationRequestsForSession(session, auth);
+        if (players.isEmpty()) {
+            throw new IllegalArgumentException("No active players found for this session");
+        }
+
+        if ("whatsapp".equals(method)) {
+            InviteTokenService.InviteLinkResult inviteLink = inviteTokenService.createToken(
+                    InvitePurpose.SESSION_CONFIRMATION,
+                    session.getId(),
+                    auth.getClubId(),
+                    auth.getSeasonId(),
+                    InviteChannel.WHATSAPP,
+                    auth.getId());
+            return SendSessionConfirmationsResponse.builder()
+                    .communicationMethod("whatsapp")
+                    .inviteLink(inviteLink.inviteLink())
+                    .playerCount(players.size())
+                    .message("Session confirmation link ready to share on WhatsApp")
+                    .build();
+        }
+
+        List<Player> missingEmail = players.stream()
+                .filter(p -> p.getEmail() == null || p.getEmail().isBlank())
+                .toList();
+        if (!missingEmail.isEmpty()) {
+            String names = missingEmail.stream()
+                    .map(p -> {
+                        String first = p.getFirstName() != null ? p.getFirstName() : "";
+                        String last = p.getLastName() != null ? p.getLastName() : "";
+                        String full = (first + " " + last).trim();
+                        return full.isEmpty() ? p.getId() : full;
+                    })
+                    .collect(Collectors.joining(", "));
+            throw new IllegalArgumentException(
+                    "Cannot send email invites. Missing email for: " + names);
+        }
+
+        emailConfirmationRequests(session, auth, players);
+        return SendSessionConfirmationsResponse.builder()
+                .communicationMethod("email")
+                .inviteLink(null)
+                .playerCount(players.size())
+                .message("Session confirmation emails sent successfully")
+                .build();
+    }
+
+    /**
+     * Creates or reuses active ConfirmationRequest rows for every invited player.
+     * @return distinct active players that received a request row
+     */
+    public List<Player> ensureConfirmationRequestsForSession(Session session, Auth auth) {
+        String sessionId = session.getId();
+        Set<String> allPlayerIds = resolveSessionPlayerIds(session);
+        List<Player> players = new ArrayList<>();
+
+        for (String playerId : allPlayerIds) {
+            Player player = playerRepository.findById(playerId).orElse(null);
+            if (player == null || !Boolean.TRUE.equals(player.getIsActive())) {
+                if (player == null) {
+                    log.warn("Player not found for ID: {}", playerId);
                 }
+                continue;
             }
 
-            allPlayerIds.addAll(additionalPlayers);
+            Optional<ConfirmationRequest> existingRequestOpt = confirmationRequestRepository
+                    .findBySessionIdAndPlayerId(sessionId, playerId);
 
-            for (String playerId : allPlayerIds) {
-                Player player = playerRepository.findById(playerId).orElse(null);
-                if (player == null || !Boolean.TRUE.equals(player.getIsActive())) {
-                    if (player == null) {
-                        log.warn("Player not found for ID: {}", playerId);
-                    }
+            if (existingRequestOpt.isPresent() && Boolean.TRUE.equals(existingRequestOpt.get().getIsActive())) {
+                ConfirmationRequest req = existingRequestOpt.get();
+                req.setUpdatedAt(Instant.now());
+                confirmationRequestRepository.save(req);
+            } else {
+                ConfirmationRequest newRequest = new ConfirmationRequest();
+                newRequest.setClubId(auth.getClubId());
+                newRequest.setSeasonId(auth.getSeasonId());
+                newRequest.setSessionId(sessionId);
+                newRequest.setPlayerId(player.getId());
+                newRequest.setTeamId(null);
+                newRequest.setPlayerAttendanceResponse("pending");
+                newRequest.setSessionAttendance("pending");
+                newRequest.setPayment("No");
+                newRequest.setAmount(session.getPrice());
+                newRequest.setIsActive(true);
+                newRequest.setCreatedBy(auth.getId());
+                newRequest.setCreatedAt(Instant.now());
+                newRequest.setUpdatedAt(Instant.now());
+                confirmationRequestRepository.save(newRequest);
+            }
+            players.add(player);
+        }
+        return players;
+    }
+
+    private Set<String> resolveSessionPlayerIds(Session session) {
+        List<String> teamList = session.getTeamList() != null && !session.getTeamList().isEmpty() ?
+                Arrays.asList(session.getTeamList().split(",")) : new ArrayList<>();
+        List<String> additionalPlayers = session.getAdditionalPlayers() != null && !session.getAdditionalPlayers().isEmpty() ?
+                Arrays.asList(session.getAdditionalPlayers().split(",")) : new ArrayList<>();
+
+        Set<String> allPlayerIds = new HashSet<>();
+        for (String teamId : teamList) {
+            com.squad.backend.model.Team team = teamRepository.findById(teamId.trim()).orElse(null);
+            if (team != null && Boolean.TRUE.equals(team.getIsActive())
+                    && team.getPlayersList() != null && !team.getPlayersList().isEmpty()) {
+                allPlayerIds.addAll(Arrays.asList(team.getPlayersList().split(",")));
+            }
+        }
+        for (String playerId : additionalPlayers) {
+            if (playerId != null && !playerId.isBlank()) {
+                allPlayerIds.add(playerId.trim());
+            }
+        }
+        return allPlayerIds;
+    }
+
+    private void emailConfirmationRequests(Session session, Auth auth, List<Player> players) {
+        try {
+            for (Player player : players) {
+                ConfirmationRequest request = confirmationRequestRepository
+                        .findBySessionIdAndPlayerId(session.getId(), player.getId())
+                        .orElse(null);
+                if (request == null || !Boolean.TRUE.equals(request.getIsActive())) {
                     continue;
                 }
 
-                Optional<ConfirmationRequest> existingRequestOpt = confirmationRequestRepository
-                        .findBySessionIdAndPlayerId(sessionId, playerId);
-
-                String requestId;
-                if (existingRequestOpt.isPresent() && Boolean.TRUE.equals(existingRequestOpt.get().getIsActive())) {
-                    ConfirmationRequest req = existingRequestOpt.get();
-                    requestId = req.getId();
-                    req.setUpdatedAt(Instant.now());
-                    confirmationRequestRepository.save(req);
-                } else {
-                    ConfirmationRequest newRequest = new ConfirmationRequest();
-                    newRequest.setClubId(auth.getClubId());
-                    newRequest.setSeasonId(auth.getSeasonId());
-                    newRequest.setSessionId(sessionId);
-                    newRequest.setPlayerId(player.getId());
-                    newRequest.setTeamId(null);
-                    newRequest.setPlayerAttendanceResponse("pending");
-                    newRequest.setSessionAttendance("pending");
-                    newRequest.setPayment("No");
-                    newRequest.setAmount(session.getPrice());
-                    newRequest.setIsActive(true);
-                    newRequest.setCreatedBy(auth.getId());
-                    newRequest.setCreatedAt(Instant.now());
-                    newRequest.setUpdatedAt(Instant.now());
-                    ConfirmationRequest saved = confirmationRequestRepository.save(newRequest);
-                    requestId = saved.getId();
-                }
-
+                String requestId = request.getId();
                 String verificationToken = jwtTokenProvider.generateToken(requestId);
-                String confirmationUrl = frontendUrl + "#/confirmation-request/" + requestId + "/" + verificationToken;
+                String confirmationUrl = FrontendLinkUtils.hashLink(
+                        frontendUrl,
+                        "confirmation-request/" + requestId + "/" + verificationToken);
 
                 Map<String, String> templateData = new HashMap<>();
                 templateData.put("emailTitle", "Squad STM - Session Confirmation Request");
@@ -576,12 +735,13 @@ public class ConfirmationRequestService {
                 boolean mailSent = emailService.sendEmail(
                         player.getEmail(),
                         "Squad STM - Session Confirmation Request",
-                        "Confirmation required for session \"" + session.getSessionName() + "\". Click here to confirm: " + confirmationUrl,
+                        "Confirmation required for session \"" + session.getSessionName()
+                                + "\". Click here to confirm: " + confirmationUrl,
                         templateData
                 );
 
                 if (!mailSent) {
-                    log.error("Failed to send email to player {}", playerId);
+                    log.error("Failed to send email to player {}", player.getId());
                 }
             }
         } catch (Exception e) {
@@ -611,17 +771,45 @@ public class ConfirmationRequestService {
     }
 
     private ConfirmationRequestResponse mapToResponse(ConfirmationRequest request) {
-        String clubName = clubRepository.findById(request.getClubId())
-                .map(c -> c.getClubName())
-                .orElse("N/A");
+        return mapToResponse(request, Map.of(), Map.of(), Map.of());
+    }
 
-        String playerName = playerRepository.findById(request.getPlayerId())
-                .map(p -> p.getFirstName() + " " + p.getLastName())
-                .orElse("N/A");
+    private ConfirmationRequestResponse mapToResponse(
+            ConfirmationRequest request,
+            Map<String, String> clubNames,
+            Map<String, String> playerNames,
+            Map<String, String> sessionNames) {
+        String clubName;
+        if (!clubNames.isEmpty()) {
+            clubName = clubNames.getOrDefault(request.getClubId(), "N/A");
+        } else {
+            clubName = clubRepository.findById(request.getClubId())
+                    .map(Club::getClubName)
+                    .orElse("N/A");
+        }
 
-        String sessionName = sessionRepository.findById(request.getSessionId())
-                .map(s -> s.getSessionName())
-                .orElse("N/A");
+        String playerName;
+        if (!playerNames.isEmpty()) {
+            playerName = playerNames.getOrDefault(request.getPlayerId(), "N/A");
+        } else {
+            playerName = playerRepository.findById(request.getPlayerId())
+                    .map(p -> {
+                        String first = p.getFirstName() != null ? p.getFirstName() : "";
+                        String last = p.getLastName() != null ? p.getLastName() : "";
+                        String full = (first + " " + last).trim();
+                        return full.isEmpty() ? "N/A" : full;
+                    })
+                    .orElse("N/A");
+        }
+
+        String sessionName;
+        if (!sessionNames.isEmpty()) {
+            sessionName = sessionNames.getOrDefault(request.getSessionId(), "N/A");
+        } else {
+            sessionName = sessionRepository.findById(request.getSessionId())
+                    .map(Session::getSessionName)
+                    .orElse("N/A");
+        }
 
         return ConfirmationRequestResponse.builder()
                 .id(request.getId())

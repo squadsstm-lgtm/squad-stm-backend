@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.time.Instant;
+import java.util.List;
 
 @Data
 @Builder
@@ -21,4 +22,13 @@ public class InviteResolveResponse {
     private Boolean canPrefill;
     private Boolean alreadySubmitted;
     private Instant expiresAt;
+    /** Payment / session confirmation: JWT for the confirmation-request page. */
+    private String accessToken;
+    /** Session confirmation invite: session summary for RSVP landing. */
+    private String sessionName;
+    private String sessionType;
+    private String sessionDate;
+    private String sessionLocation;
+    private String sessionPrice;
+    private List<InviteSessionPlayerOption> players;
 }

@@ -36,6 +36,7 @@ public class SecurityConfig {
                     "/api/auth/check-email", "/api/auth/check-username",
                     "/api/auth/check-phone", "/api/auth/check-clubName",
                     "/api/auth/forgotPassword", "/api/auth/reset-password",
+                    "/api/auth/resend-verification",
                     "/api/auth/validate-accessToken",
                     "/api/auth/mpin/forgot/validate", "/api/auth/mpin/forgot/reset",
                     "/api/auth/seed-controller").permitAll()
@@ -46,6 +47,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/users/*/*").permitAll()
                 .requestMatchers(HttpMethod.PUT, "/api/users/*/*").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/invite/*").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/invite/*/select-player").permitAll()
                 .requestMatchers(HttpMethod.PUT, "/api/invite/*/complete").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/requests/*/*").permitAll()
                 .requestMatchers(HttpMethod.PUT, "/api/requests/update").permitAll()

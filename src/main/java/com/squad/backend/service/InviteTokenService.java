@@ -1,21 +1,27 @@
 package com.squad.backend.service;
 
 import com.squad.backend.constants.ErrorMessages;
-import com.squad.backend.constants.InviteChannel;
 import com.squad.backend.constants.InvitePurpose;
 import com.squad.backend.dto.request.player.CreatePlayerRequest;
 import com.squad.backend.dto.request.user.CreateUserRequest;
 import com.squad.backend.dto.response.invite.InviteResolveResponse;
+import com.squad.backend.dto.response.invite.InviteSessionPlayerOption;
+import com.squad.backend.dto.response.invite.SelectSessionPlayerResponse;
 import com.squad.backend.dto.response.player.PlayerResponse;
 import com.squad.backend.model.Auth;
 import com.squad.backend.model.Club;
+import com.squad.backend.model.ConfirmationRequest;
 import com.squad.backend.model.InviteToken;
 import com.squad.backend.model.Player;
+import com.squad.backend.model.Session;
 import com.squad.backend.model.User;
 import com.squad.backend.repository.ClubRepository;
+import com.squad.backend.repository.ConfirmationRequestRepository;
 import com.squad.backend.repository.InviteTokenRepository;
 import com.squad.backend.repository.PlayerRepository;
+import com.squad.backend.repository.SessionRepository;
 import com.squad.backend.repository.UserRepository;
+import com.squad.backend.security.JwtTokenProvider;
 import com.squad.backend.utils.FrontendLinkUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +31,8 @@ import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 @Service
@@ -38,6 +46,9 @@ public class InviteTokenService {
     private final PlayerRepository playerRepository;
     private final UserRepository userRepository;
     private final ClubRepository clubRepository;
+    private final ConfirmationRequestRepository confirmationRequestRepository;
+    private final SessionRepository sessionRepository;
+    private final JwtTokenProvider jwtTokenProvider;
 
     @Autowired
     @Lazy
@@ -94,7 +105,36 @@ public class InviteTokenService {
         if (InvitePurpose.USER_PROFILE.equals(token.getPurpose())) {
             return resolveUserProfile(token);
         }
+        if (InvitePurpose.PAYMENT_REQUEST.equals(token.getPurpose())) {
+            return resolvePaymentRequest(token);
+        }
+        if (InvitePurpose.SESSION_CONFIRMATION.equals(token.getPurpose())) {
+            return resolveSessionConfirmation(token);
+        }
         throw new IllegalArgumentException(ErrorMessages.INVITE_LINK_INVALID);
+    }
+
+    public SelectSessionPlayerResponse selectSessionPlayer(String code, String playerId) {
+        InviteToken token = validateActiveToken(code);
+        if (!InvitePurpose.SESSION_CONFIRMATION.equals(token.getPurpose())) {
+            throw new IllegalArgumentException(ErrorMessages.INVITE_LINK_INVALID);
+        }
+        if (playerId == null || playerId.isBlank()) {
+            throw new IllegalArgumentException("playerId is required");
+        }
+
+        ConfirmationRequest request = confirmationRequestRepository
+                .findBySessionIdAndPlayerId(token.getEntityId(), playerId.trim())
+                .orElseThrow(() -> new IllegalArgumentException(ErrorMessages.INVITE_LINK_INVALID));
+        if (!Boolean.TRUE.equals(request.getIsActive())) {
+            throw new IllegalArgumentException(ErrorMessages.INVITE_LINK_INVALID);
+        }
+
+        String accessToken = jwtTokenProvider.generateToken(request.getId(), inviteExpirationMs);
+        return SelectSessionPlayerResponse.builder()
+                .requestId(request.getId())
+                .accessToken(accessToken)
+                .build();
     }
 
     public PlayerResponse completePlayerProfile(String code, CreatePlayerRequest request) {
@@ -173,6 +213,75 @@ public class InviteTokenService {
                 .build();
     }
 
+    private InviteResolveResponse resolvePaymentRequest(InviteToken token) {
+        confirmationRequestRepository.findById(token.getEntityId())
+                .orElseThrow(() -> new IllegalArgumentException(ErrorMessages.INVITE_LINK_INVALID));
+
+        String accessToken = jwtTokenProvider.generateToken(token.getEntityId(), inviteExpirationMs);
+        return InviteResolveResponse.builder()
+                .purpose(token.getPurpose())
+                .entityId(token.getEntityId())
+                .clubId(token.getClubId())
+                .seasonId(token.getSeasonId())
+                .clubName(resolveClubName(token.getClubId()))
+                .accessToken(accessToken)
+                .expiresAt(token.getExpiresAt())
+                .build();
+    }
+
+    private InviteResolveResponse resolveSessionConfirmation(InviteToken token) {
+        Session session = sessionRepository.findById(token.getEntityId())
+                .orElseThrow(() -> new IllegalArgumentException(ErrorMessages.INVITE_LINK_INVALID));
+        if (!Boolean.TRUE.equals(session.getIsActive()) || !Boolean.TRUE.equals(session.getActive())) {
+            throw new IllegalArgumentException(ErrorMessages.INVITE_LINK_INVALID);
+        }
+
+        List<ConfirmationRequest> requests = confirmationRequestRepository.findBySessionId(session.getId());
+        List<InviteSessionPlayerOption> players = new ArrayList<>();
+        for (ConfirmationRequest request : requests) {
+            if (!Boolean.TRUE.equals(request.getIsActive())) {
+                continue;
+            }
+            Player player = playerRepository.findById(request.getPlayerId()).orElse(null);
+            if (player == null || !Boolean.TRUE.equals(player.getIsActive())) {
+                continue;
+            }
+            String attendance = request.getPlayerAttendanceResponse();
+            boolean alreadyResponded = attendance != null
+                    && !attendance.isBlank()
+                    && !"pending".equalsIgnoreCase(attendance);
+            players.add(InviteSessionPlayerOption.builder()
+                    .playerId(player.getId())
+                    .requestId(request.getId())
+                    .firstName(player.getFirstName())
+                    .lastName(player.getLastName())
+                    .alreadyResponded(alreadyResponded)
+                    .build());
+        }
+
+        players.sort(Comparator
+                .comparing((InviteSessionPlayerOption p) ->
+                        (p.getFirstName() != null ? p.getFirstName() : "")
+                                + " "
+                                + (p.getLastName() != null ? p.getLastName() : ""),
+                        String.CASE_INSENSITIVE_ORDER));
+
+        return InviteResolveResponse.builder()
+                .purpose(token.getPurpose())
+                .entityId(session.getId())
+                .clubId(token.getClubId())
+                .seasonId(token.getSeasonId())
+                .clubName(resolveClubName(token.getClubId()))
+                .sessionName(session.getSessionName())
+                .sessionType(session.getSessionType())
+                .sessionDate(session.getDate())
+                .sessionLocation(session.getLocation())
+                .sessionPrice(session.getPrice())
+                .players(players)
+                .expiresAt(token.getExpiresAt())
+                .build();
+    }
+
     private InviteToken validateActiveToken(String code) {
         if (code == null || code.isBlank()) {
             throw new IllegalArgumentException(ErrorMessages.INVITE_LINK_INVALID);
@@ -185,12 +294,20 @@ public class InviteTokenService {
             throw new InviteTokenRevokedException(ErrorMessages.INVITE_LINK_REVOKED);
         }
         if (token.getUsedAt() != null) {
+            if (InvitePurpose.PAYMENT_REQUEST.equals(token.getPurpose())
+                    || InvitePurpose.SESSION_CONFIRMATION.equals(token.getPurpose())) {
+                throw new IllegalArgumentException(ErrorMessages.INVITE_LINK_INVALID);
+            }
             throw new IllegalArgumentException(
                     InvitePurpose.USER_PROFILE.equals(token.getPurpose())
                             ? ErrorMessages.USER_INVITE_ALREADY_SUBMITTED
                             : ErrorMessages.PLAYER_INVITE_ALREADY_SUBMITTED);
         }
         if (token.getExpiresAt() != null && token.getExpiresAt().isBefore(Instant.now())) {
+            if (InvitePurpose.PAYMENT_REQUEST.equals(token.getPurpose())
+                    || InvitePurpose.SESSION_CONFIRMATION.equals(token.getPurpose())) {
+                throw new InviteTokenExpiredException(ErrorMessages.INVITE_LINK_REVOKED);
+            }
             throw new InviteTokenExpiredException(
                     InvitePurpose.USER_PROFILE.equals(token.getPurpose())
                             ? ErrorMessages.USER_INVITE_LINK_EXPIRED

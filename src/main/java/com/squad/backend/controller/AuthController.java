@@ -5,6 +5,7 @@ import com.squad.backend.dto.request.auth.ForgotMpinRequest;
 import com.squad.backend.dto.request.auth.ForgotPasswordRequest;
 import com.squad.backend.dto.request.auth.GoogleLoginRequest;
 import com.squad.backend.dto.request.auth.LoginRequest;
+import com.squad.backend.dto.request.auth.ResendVerificationRequest;
 import com.squad.backend.dto.request.auth.ResetMpinRequest;
 import com.squad.backend.dto.request.auth.ResetMpinWithTokenRequest;
 import com.squad.backend.dto.request.auth.ResetPasswordRequest;
@@ -313,6 +314,33 @@ public class AuthController {
                     .body(ApiResponse.error(ErrorMessages.AN_ERROR_OCCURRED));
         } catch (Exception e) {
             log.error("Forgot password error: ", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error(ErrorMessages.AN_ERROR_OCCURRED));
+        }
+    }
+
+    @PostMapping("/resend-verification")
+    public ResponseEntity<ApiResponse<Void>> resendVerification(
+            @Valid @RequestBody ResendVerificationRequest request) {
+        try {
+            authService.resendVerificationEmail(request.getEmail());
+            return ResponseEntity.ok(ApiResponse.success((Void) null, "Verification email sent. Please check your inbox."));
+        } catch (IllegalArgumentException e) {
+            if (ErrorMessages.USER_BLOCKED.equals(e.getMessage())) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body(ApiResponse.error(e.getMessage()));
+            }
+            if (ErrorMessages.USER_NOT_FOUND.equals(e.getMessage())) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(e.getMessage()));
+            }
+            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
+        } catch (RuntimeException e) {
+            log.error("Resend verification email failed: ", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error(e.getMessage()));
+        } catch (Exception e) {
+            log.error("Resend verification error: ", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiResponse.error(ErrorMessages.AN_ERROR_OCCURRED));
         }

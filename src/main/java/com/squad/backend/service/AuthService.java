@@ -114,17 +114,42 @@ public class AuthService {
         
         Auth savedAuth = authRepository.save(auth);
         
-        // Send email based on verification status
+        // Soft-fail email so SMTP issues don't roll back / block registration
         boolean isVerified = Boolean.TRUE.equals(savedAuth.getIsVerified());
-        if (isVerified) {
-            // Send welcome email
-            sendWelcomeEmail(savedAuth);
-        } else {
-            // Send verification email
-            sendVerificationEmail(savedAuth);
+        try {
+            if (isVerified) {
+                sendWelcomeEmail(savedAuth);
+            } else {
+                sendVerificationEmail(savedAuth);
+            }
+        } catch (Exception e) {
+            log.error("Signup succeeded but email failed for {}: {}", savedAuth.getEmail(), e.getMessage(), e);
         }
         
         return savedAuth;
+    }
+
+    /**
+     * Resend verification email for an unverified account.
+     * @return true if the email was sent
+     */
+    public boolean resendVerificationEmail(String email) {
+        Auth auth = authRepository.findByEmail(email.toLowerCase().trim())
+                .orElseThrow(() -> new IllegalArgumentException(ErrorMessages.USER_NOT_FOUND));
+
+        requireAuthNotBlocked(auth);
+
+        if (Boolean.TRUE.equals(auth.getIsVerified())) {
+            throw new IllegalArgumentException("Email is already verified. You can sign in.");
+        }
+
+        try {
+            sendVerificationEmail(auth);
+            return true;
+        } catch (Exception e) {
+            log.error("Failed to resend verification email to {}: {}", auth.getEmail(), e.getMessage(), e);
+            throw new RuntimeException("Failed to send verification email. Please try again later.");
+        }
     }
     
     private void sendWelcomeEmail(Auth auth) {
@@ -356,6 +381,12 @@ public class AuthService {
         }
 
         if (!Boolean.TRUE.equals(auth.getIsVerified())) {
+            try {
+                sendVerificationEmail(auth);
+            } catch (Exception e) {
+                log.error("Failed to resend verification email during login for {}: {}",
+                        auth.getEmail(), e.getMessage(), e);
+            }
             throw new IllegalArgumentException(ErrorMessages.USER_NOT_VERIFIED);
         }
 

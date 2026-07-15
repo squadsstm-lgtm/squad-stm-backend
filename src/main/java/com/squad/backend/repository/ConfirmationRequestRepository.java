@@ -16,6 +16,8 @@ public interface ConfirmationRequestRepository extends MongoRepository<Confirmat
 
     List<ConfirmationRequest> findBySessionId(String sessionId);
 
+    List<ConfirmationRequest> findBySessionIdIn(List<String> sessionIds);
+
     List<ConfirmationRequest> findByPlayerId(String playerId);
 
     // Uniqueness checks

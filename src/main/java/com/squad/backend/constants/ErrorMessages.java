@@ -14,7 +14,7 @@ public class ErrorMessages {
     public static final String PHONE_ALREADY_EXISTS = "Phone number is already registered.";
     public static final String INVALID_PASSWORD = "Invalid password";
     public static final String USER_BLOCKED = "User Blocked.";
-    public static final String USER_NOT_VERIFIED = "User not verified. Verification Email is send to your email.";
+    public static final String USER_NOT_VERIFIED = "User not verified. A verification email has been sent to your email.";
     public static final String TOKEN_INVALID = "Token is invalid";
     
     public static final String SIGNUP_ERROR = "An error occurred during signup";

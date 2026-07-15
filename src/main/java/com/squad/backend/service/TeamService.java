@@ -25,8 +25,12 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -113,9 +117,8 @@ public class TeamService {
         Pageable pageable = PageRequest.of(Math.max(pageNumber - 1, 0), pageSize, DEFAULT_TEAM_PAGE_SORT);
         query.with(pageable);
 
-        List<TeamResponse> teams = mongoTemplateClient.find(query, Team.class).stream()
-                .map(team -> mapToResponse(team, clubId, seasonId))
-                .collect(Collectors.toList());
+        List<Team> pageTeams = mongoTemplateClient.find(query, Team.class);
+        List<TeamResponse> teams = mapTeamsToResponses(pageTeams, clubId, seasonId);
 
         int totalPages = pageSize > 0 ? (int) Math.ceil((double) totalItems / pageSize) : 0;
         return new PagedTeamsResult(teams, totalItems, totalPages, pageNumber, pageSize);
@@ -328,39 +331,101 @@ public class TeamService {
     }
 
     private TeamResponse mapToResponse(Team team, String clubId, String seasonId) {
-        // Count active players in this team's playersList
-        int playerCount = 0;
-        if (team.getPlayersList() != null && !team.getPlayersList().isEmpty()) {
-            String[] playerIds = team.getPlayersList().split(",");
-            List<String> playerIdList = java.util.Arrays.asList(playerIds);
-            List<Player> activePlayers = playerRepository.findAllById(playerIdList)
-                    .stream()
-                    .filter(p -> Boolean.TRUE.equals(p.getIsActive()))
-                    .collect(Collectors.toList());
-            playerCount = activePlayers.size();
+        return mapTeamsToResponses(List.of(team), clubId, seasonId).get(0);
+    }
+
+    /**
+     * Batch-enrich teams for a page: one player lookup + one lightweight session scan
+     * instead of 3 DB queries per team.
+     */
+    private List<TeamResponse> mapTeamsToResponses(List<Team> teams, String clubId, String seasonId) {
+        if (teams == null || teams.isEmpty()) {
+            return List.of();
         }
 
-        // Count sessions where teamList contains this team ID (using regex like Node.js)
-        String teamIdRegex = team.getId();
-        Long gameCount = sessionRepository.countByClubIdAndSeasonIdAndIsActiveAndTeamListRegexAndSessionType(
-                clubId, seasonId, true, teamIdRegex, "Game");
-        Long trainingCount = sessionRepository.countByClubIdAndSeasonIdAndIsActiveAndTeamListRegexAndSessionType(
-                clubId, seasonId, true, teamIdRegex, "Training");
+        Set<String> allPlayerIds = new HashSet<>();
+        for (Team team : teams) {
+            if (team.getPlayersList() == null || team.getPlayersList().isEmpty()) {
+                continue;
+            }
+            for (String playerId : team.getPlayersList().split(",")) {
+                if (playerId != null && !playerId.trim().isEmpty()) {
+                    allPlayerIds.add(playerId.trim());
+                }
+            }
+        }
 
-        return TeamResponse.builder()
-                .id(team.getId())
-                .seasonId(team.getSeasonId())
-                .clubId(team.getClubId())
-                .clubName(team.getClubName())
-                .teamName(team.getTeamName())
-                .league(team.getLeague())
-                .playersList(team.getPlayersList())
-                .notes(team.getNotes())
-                .isActive(team.getIsActive())
-                .playerCount(playerCount)
-                .gameCount(gameCount != null ? gameCount.intValue() : 0)
-                .trainingCount(trainingCount != null ? trainingCount.intValue() : 0)
-                .build();
+        Map<String, Player> playersById = allPlayerIds.isEmpty()
+                ? Map.of()
+                : playerRepository.findAllById(allPlayerIds).stream()
+                    .collect(Collectors.toMap(Player::getId, p -> p, (a, b) -> a));
+
+        Query sessionQuery = new Query();
+        sessionQuery.addCriteria(Criteria.where("clubId").is(clubId));
+        sessionQuery.addCriteria(Criteria.where("seasonId").is(seasonId));
+        sessionQuery.addCriteria(Criteria.where("isActive").is(true));
+        sessionQuery.addCriteria(Criteria.where("sessionType").in("Game", "Training"));
+        sessionQuery.fields().include("teamList").include("sessionType");
+        List<Session> clubSessions = mongoTemplateClient.find(sessionQuery, Session.class);
+
+        List<TeamResponse> responses = new ArrayList<>(teams.size());
+        for (Team team : teams) {
+            int playerCount = 0;
+            if (team.getPlayersList() != null && !team.getPlayersList().isEmpty()) {
+                for (String playerId : team.getPlayersList().split(",")) {
+                    if (playerId == null || playerId.trim().isEmpty()) {
+                        continue;
+                    }
+                    Player player = playersById.get(playerId.trim());
+                    if (player != null && Boolean.TRUE.equals(player.getIsActive())) {
+                        playerCount++;
+                    }
+                }
+            }
+
+            int gameCount = 0;
+            int trainingCount = 0;
+            String teamId = team.getId();
+            for (Session session : clubSessions) {
+                if (!teamListContains(session.getTeamList(), teamId)) {
+                    continue;
+                }
+                if ("Game".equalsIgnoreCase(session.getSessionType())) {
+                    gameCount++;
+                } else if ("Training".equalsIgnoreCase(session.getSessionType())) {
+                    trainingCount++;
+                }
+            }
+
+            responses.add(TeamResponse.builder()
+                    .id(team.getId())
+                    .seasonId(team.getSeasonId())
+                    .clubId(team.getClubId())
+                    .clubName(team.getClubName())
+                    .teamName(team.getTeamName())
+                    .league(team.getLeague())
+                    .playersList(team.getPlayersList())
+                    .notes(team.getNotes())
+                    .isActive(team.getIsActive())
+                    .playerCount(playerCount)
+                    .gameCount(gameCount)
+                    .trainingCount(trainingCount)
+                    .build());
+        }
+        return responses;
+    }
+
+    private boolean teamListContains(String teamList, String teamId) {
+        if (teamList == null || teamList.isEmpty() || teamId == null || teamId.isEmpty()) {
+            return false;
+        }
+        // Match token boundaries to preserve previous regex semantics without false substring hits.
+        for (String token : teamList.split(",")) {
+            if (teamId.equals(token.trim())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public record PagedTeamsResult(
