@@ -6,6 +6,7 @@ import com.squad.backend.dto.request.player.CreatePlayerRequest;
 import com.squad.backend.dto.request.user.CreateUserRequest;
 import com.squad.backend.dto.response.invite.InviteResolveResponse;
 import com.squad.backend.dto.response.invite.InviteSessionPlayerOption;
+import com.squad.backend.dto.response.invite.MatchSessionPlayerResponse;
 import com.squad.backend.dto.response.invite.SelectSessionPlayerResponse;
 import com.squad.backend.dto.response.player.PlayerResponse;
 import com.squad.backend.model.Auth;
@@ -137,6 +138,109 @@ public class InviteTokenService {
                 .build();
     }
 
+    /**
+     * Match a session RSVP visitor by first/last name (case-insensitive, trimmed).
+     * One match → returns access token. Multiple → returns candidate list only.
+     * Optional playerId confirms among candidates when names collide.
+     */
+    public MatchSessionPlayerResponse matchSessionPlayer(
+            String code,
+            String firstName,
+            String lastName,
+            String playerId) {
+        InviteToken token = validateActiveToken(code);
+        if (!InvitePurpose.SESSION_CONFIRMATION.equals(token.getPurpose())) {
+            throw new IllegalArgumentException(ErrorMessages.INVITE_LINK_INVALID);
+        }
+
+        String normalizedFirst = normalizeName(firstName);
+        String normalizedLast = normalizeName(lastName);
+        if (normalizedFirst.isEmpty() || normalizedLast.isEmpty()) {
+            throw new IllegalArgumentException("First name and last name are required");
+        }
+
+        List<InviteSessionPlayerOption> matches = findSessionPlayerMatches(
+                token.getEntityId(), normalizedFirst, normalizedLast);
+
+        if (playerId != null && !playerId.isBlank()) {
+            InviteSessionPlayerOption chosen = matches.stream()
+                    .filter(m -> playerId.trim().equals(m.getPlayerId()))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "Selected player does not match the provided name"));
+            return completeMatch(chosen);
+        }
+
+        if (matches.isEmpty()) {
+            return MatchSessionPlayerResponse.builder()
+                    .matches(List.of())
+                    .build();
+        }
+        if (matches.size() == 1) {
+            return completeMatch(matches.get(0));
+        }
+        return MatchSessionPlayerResponse.builder()
+                .matches(matches)
+                .build();
+    }
+
+    private MatchSessionPlayerResponse completeMatch(InviteSessionPlayerOption chosen) {
+        String accessToken = jwtTokenProvider.generateToken(chosen.getRequestId(), inviteExpirationMs);
+        return MatchSessionPlayerResponse.builder()
+                .matches(List.of(chosen))
+                .requestId(chosen.getRequestId())
+                .accessToken(accessToken)
+                .firstName(chosen.getFirstName())
+                .lastName(chosen.getLastName())
+                .build();
+    }
+
+    private List<InviteSessionPlayerOption> findSessionPlayerMatches(
+            String sessionId,
+            String normalizedFirst,
+            String normalizedLast) {
+        List<ConfirmationRequest> requests = confirmationRequestRepository.findBySessionId(sessionId);
+        List<InviteSessionPlayerOption> matches = new ArrayList<>();
+        for (ConfirmationRequest request : requests) {
+            if (!Boolean.TRUE.equals(request.getIsActive())) {
+                continue;
+            }
+            Player player = playerRepository.findById(request.getPlayerId()).orElse(null);
+            if (player == null || !Boolean.TRUE.equals(player.getIsActive())) {
+                continue;
+            }
+            if (!normalizedFirst.equals(normalizeName(player.getFirstName()))
+                    || !normalizedLast.equals(normalizeName(player.getLastName()))) {
+                continue;
+            }
+            String attendance = request.getPlayerAttendanceResponse();
+            boolean alreadyResponded = attendance != null
+                    && !attendance.isBlank()
+                    && !"pending".equalsIgnoreCase(attendance);
+            matches.add(InviteSessionPlayerOption.builder()
+                    .playerId(player.getId())
+                    .requestId(request.getId())
+                    .firstName(player.getFirstName())
+                    .lastName(player.getLastName())
+                    .alreadyResponded(alreadyResponded)
+                    .build());
+        }
+        matches.sort(Comparator.comparing(
+                (InviteSessionPlayerOption p) ->
+                        (p.getFirstName() != null ? p.getFirstName() : "")
+                                + " "
+                                + (p.getLastName() != null ? p.getLastName() : ""),
+                String.CASE_INSENSITIVE_ORDER));
+        return matches;
+    }
+
+    private static String normalizeName(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.trim().replaceAll("\\s+", " ").toLowerCase(java.util.Locale.ROOT);
+    }
+
     public PlayerResponse completePlayerProfile(String code, CreatePlayerRequest request) {
         InviteToken token = validateActiveToken(code);
         if (!InvitePurpose.PLAYER_PROFILE.equals(token.getPurpose())) {
@@ -236,36 +340,7 @@ public class InviteTokenService {
             throw new IllegalArgumentException(ErrorMessages.INVITE_LINK_INVALID);
         }
 
-        List<ConfirmationRequest> requests = confirmationRequestRepository.findBySessionId(session.getId());
-        List<InviteSessionPlayerOption> players = new ArrayList<>();
-        for (ConfirmationRequest request : requests) {
-            if (!Boolean.TRUE.equals(request.getIsActive())) {
-                continue;
-            }
-            Player player = playerRepository.findById(request.getPlayerId()).orElse(null);
-            if (player == null || !Boolean.TRUE.equals(player.getIsActive())) {
-                continue;
-            }
-            String attendance = request.getPlayerAttendanceResponse();
-            boolean alreadyResponded = attendance != null
-                    && !attendance.isBlank()
-                    && !"pending".equalsIgnoreCase(attendance);
-            players.add(InviteSessionPlayerOption.builder()
-                    .playerId(player.getId())
-                    .requestId(request.getId())
-                    .firstName(player.getFirstName())
-                    .lastName(player.getLastName())
-                    .alreadyResponded(alreadyResponded)
-                    .build());
-        }
-
-        players.sort(Comparator
-                .comparing((InviteSessionPlayerOption p) ->
-                        (p.getFirstName() != null ? p.getFirstName() : "")
-                                + " "
-                                + (p.getLastName() != null ? p.getLastName() : ""),
-                        String.CASE_INSENSITIVE_ORDER));
-
+        // Do not expose the full player roster — identity is matched by name on submit.
         return InviteResolveResponse.builder()
                 .purpose(token.getPurpose())
                 .entityId(session.getId())
@@ -277,7 +352,6 @@ public class InviteTokenService {
                 .sessionDate(session.getDate())
                 .sessionLocation(session.getLocation())
                 .sessionPrice(session.getPrice())
-                .players(players)
                 .expiresAt(token.getExpiresAt())
                 .build();
     }

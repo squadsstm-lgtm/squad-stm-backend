@@ -2,11 +2,13 @@ package com.squad.backend.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.squad.backend.constants.ErrorMessages;
+import com.squad.backend.dto.request.invite.MatchSessionPlayerRequest;
 import com.squad.backend.dto.request.invite.SelectSessionPlayerRequest;
 import com.squad.backend.dto.request.player.CreatePlayerRequest;
 import com.squad.backend.dto.request.user.CreateUserRequest;
 import com.squad.backend.dto.response.ApiResponse;
 import com.squad.backend.dto.response.invite.InviteResolveResponse;
+import com.squad.backend.dto.response.invite.MatchSessionPlayerResponse;
 import com.squad.backend.dto.response.invite.SelectSessionPlayerResponse;
 import com.squad.backend.dto.response.player.PlayerResponse;
 import com.squad.backend.model.Auth;
@@ -86,6 +88,35 @@ public class InviteController {
                     .body(ApiResponse.error(e.getMessage()));
         } catch (Exception e) {
             log.error("Select session player error: ", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error(ErrorMessages.AN_ERROR_OCCURRED));
+        }
+    }
+
+    @PostMapping("/{code}/match-player")
+    public ResponseEntity<ApiResponse<MatchSessionPlayerResponse>> matchSessionPlayer(
+            @PathVariable String code,
+            @Valid @RequestBody MatchSessionPlayerRequest request,
+            HttpServletRequest httpRequest) {
+        try {
+            inviteRateLimitService.checkRateLimit(resolveClientIp(httpRequest));
+            MatchSessionPlayerResponse response = inviteTokenService.matchSessionPlayer(
+                    code,
+                    request.getFirstName(),
+                    request.getLastName(),
+                    request.getPlayerId());
+            return ResponseEntity.ok(ApiResponse.success(response));
+        } catch (InviteTokenService.InviteTokenExpiredException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(e.getMessage()));
+        } catch (InviteTokenService.InviteTokenRevokedException e) {
+            return ResponseEntity.status(HttpStatus.GONE)
+                    .body(ApiResponse.error(e.getMessage()));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(e.getMessage()));
+        } catch (Exception e) {
+            log.error("Match session player error: ", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiResponse.error(ErrorMessages.AN_ERROR_OCCURRED));
         }
