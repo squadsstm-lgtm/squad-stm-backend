@@ -2,12 +2,16 @@ package com.squad.backend.service;
 
 import com.squad.backend.dto.request.ConfirmPaymentRequest;
 import com.squad.backend.dto.request.CreatePaymentIntentRequest;
+import com.squad.backend.dto.request.payment.ConfirmInvoicePaymentRequest;
+import com.squad.backend.dto.request.payment.InvoicePaymentIntentRequest;
 import com.squad.backend.dto.response.PaymentIntentResponse;
 import com.squad.backend.model.ClubWallet;
 import com.squad.backend.model.ConfirmationRequest;
+import com.squad.backend.model.PaymentInvoice;
 import com.squad.backend.model.StripeCustomer;
 import com.squad.backend.model.Transaction;
 import com.squad.backend.repository.ConfirmationRequestRepository;
+import com.squad.backend.repository.PaymentInvoiceRepository;
 import com.squad.backend.repository.StripeCustomerRepository;
 import com.squad.backend.repository.TransactionRepository;
 import com.squad.backend.security.JwtTokenProvider;
@@ -34,8 +38,10 @@ public class PaymentService {
     private final StripeCustomerRepository stripeCustomerRepository;
     private final TransactionRepository transactionRepository;
     private final ConfirmationRequestRepository confirmationRequestRepository;
+    private final PaymentInvoiceRepository paymentInvoiceRepository;
     private final ClubWalletService clubWalletService;
     private final JwtTokenProvider jwtTokenProvider;
+    private final PaymentInvoiceService paymentInvoiceService;
 
     @Value("${app.frontend-url}")
     private String frontendUrl;
@@ -226,6 +232,148 @@ public class PaymentService {
         result.put("walletBalance", wallet.getTotalEarnings());
         result.put("requestUpdated", true);
 
+        return result;
+    }
+
+    public PaymentIntentResponse createInvoicePaymentIntent(InvoicePaymentIntentRequest request) throws StripeException {
+        PaymentInvoice invoice = paymentInvoiceService.validateInvoiceAccess(request.getInvoiceId(), request.getToken());
+        if ("PAID".equalsIgnoreCase(invoice.getStatus())) {
+            throw new IllegalArgumentException("This invoice has already been paid");
+        }
+        if (request.getAmount() == null || Math.abs(request.getAmount() - invoice.getTotalAmount()) > 0.009) {
+            throw new IllegalArgumentException("Payment amount does not match invoice total");
+        }
+
+        StripeCustomer stripeCustomer = findOrCreateCustomer(
+                invoice.getPlayerId(),
+                null,
+                invoice.getClubId(),
+                request.getCustomerName() != null ? request.getCustomerName() : "Customer",
+                request.getCustomerEmail());
+
+        Map<String, String> metadata = new HashMap<>();
+        metadata.put("clubId", invoice.getClubId());
+        metadata.put("playerId", invoice.getPlayerId());
+        metadata.put("invoiceId", invoice.getId());
+        metadata.put("paymentType", "invoice");
+        metadata.put("stripeCustomerId", stripeCustomer.getId());
+
+        Long amountInCents = Math.round(request.getAmount() * 100);
+        PaymentIntent paymentIntent = stripeService.createPaymentIntent(
+                amountInCents,
+                request.getCurrency() != null ? request.getCurrency() : "GBP",
+                metadata);
+
+        return PaymentIntentResponse.builder()
+                .clientSecret(paymentIntent.getClientSecret())
+                .id(paymentIntent.getId())
+                .build();
+    }
+
+    @Transactional
+    public Map<String, Object> confirmInvoicePayment(ConfirmInvoicePaymentRequest request) throws StripeException {
+        PaymentInvoice invoice = paymentInvoiceService.validateInvoiceAccess(request.getInvoiceId(), request.getToken());
+        if ("PAID".equalsIgnoreCase(invoice.getStatus())) {
+            throw new IllegalArgumentException("This invoice has already been paid");
+        }
+        if (request.getAmount() == null || Math.abs(request.getAmount() - invoice.getTotalAmount()) > 0.009) {
+            throw new IllegalArgumentException("Payment amount does not match invoice total");
+        }
+        if (request.getPaymentIntentId() == null) {
+            throw new IllegalArgumentException("Missing required fields");
+        }
+
+        PaymentIntent paymentIntent = stripeService.retrievePaymentIntent(request.getPaymentIntentId());
+        if (!"succeeded".equals(paymentIntent.getStatus())) {
+            throw new IllegalArgumentException("Payment not completed");
+        }
+
+        String chargeId = null;
+        try {
+            if (paymentIntent.getLatestCharge() != null) {
+                chargeId = paymentIntent.getLatestCharge();
+            }
+        } catch (Exception e) {
+            log.warn("Could not get latest charge from payment intent: {}", e.getMessage());
+        }
+        if (chargeId == null || chargeId.isEmpty()) {
+            throw new IllegalArgumentException("Payment intent does not have a charge");
+        }
+        Optional<Transaction> existingTransaction = transactionRepository.findByStripeTransactionId(chargeId);
+        if (existingTransaction.isPresent()) {
+            throw new IllegalArgumentException("This payment has already been processed");
+        }
+
+        String stripeCustomerId = paymentIntent.getMetadata().get("stripeCustomerId");
+        StripeCustomer stripeCustomer = stripeCustomerRepository.findById(stripeCustomerId)
+                .orElseThrow(() -> new IllegalArgumentException("Stripe customer not found"));
+
+        Transaction transaction = new Transaction();
+        transaction.setClubId(invoice.getClubId());
+        transaction.setSeasonId(invoice.getSeasonId());
+        transaction.setPlayerId(invoice.getPlayerId());
+        transaction.setSessionId(invoice.getLineItems() != null && !invoice.getLineItems().isEmpty()
+                ? invoice.getLineItems().get(0).getSessionId()
+                : null);
+        transaction.setAmount(request.getAmount());
+        transaction.setCurrency(request.getCurrency() != null ? request.getCurrency() : "GBP");
+        transaction.setType("payment");
+        transaction.setStatus("completed");
+        transaction.setSessionDate(LocalDate.now());
+        transaction.setSessionStatus("pending");
+        transaction.setMoneyLocked(true);
+        transaction.setAvailableForWithdrawal(false);
+        transaction.setPaymentMethod("card");
+        transaction.setStripeTransactionId(chargeId);
+        transaction.setStripeCustomerId(stripeCustomer.getId());
+        transaction.setStripeCustomerStripeId(stripeCustomer.getStripeCustomerId());
+        transaction.setProcessingFee(0.0);
+        transaction.setDescription("Outstanding invoice payment - " + request.getAmount() + " "
+                + (request.getCurrency() != null ? request.getCurrency() : "GBP"));
+        transaction.setNotes("Invoice: " + invoice.getId() + "; Stripe PI: " + request.getPaymentIntentId());
+        if (invoice.getLineItems() != null) {
+            transaction.setTags(invoice.getLineItems().stream()
+                    .map(PaymentInvoice.LineItem::getRequestId)
+                    .filter(id -> id != null && !id.isBlank())
+                    .toList());
+        }
+        transaction.setCreatedAt(Instant.now());
+        transaction.setUpdatedAt(Instant.now());
+        transaction.setCompletedAt(Instant.now());
+        transaction = transactionRepository.save(transaction);
+
+        clubWalletService.addEarnings(invoice.getClubId(), request.getAmount());
+        stripeCustomer.updatePaymentStats(request.getAmount());
+        stripeCustomerRepository.save(stripeCustomer);
+
+        Instant now = Instant.now();
+        if (invoice.getLineItems() != null) {
+            for (PaymentInvoice.LineItem line : invoice.getLineItems()) {
+                if (line.getRequestId() == null) {
+                    continue;
+                }
+                confirmationRequestRepository.findById(line.getRequestId()).ifPresent(cr -> {
+                    cr.setPayment("Yes");
+                    cr.setUpdatedAt(now);
+                    confirmationRequestRepository.save(cr);
+                });
+            }
+        }
+
+        invoice.setStatus("PAID");
+        invoice.setPaidAt(now);
+        invoice.setStripeTransactionId(chargeId);
+        invoice.setUpdatedAt(now);
+        paymentInvoiceRepository.save(invoice);
+
+        ClubWallet wallet = clubWalletService.getOrCreateWallet(invoice.getClubId());
+        Map<String, Object> result = new HashMap<>();
+        result.put("transactionId", transaction.getId());
+        result.put("amount", transaction.getAmount());
+        result.put("status", transaction.getStatus());
+        result.put("walletBalance", wallet.getTotalEarnings());
+        result.put("invoiceUpdated", true);
+        result.put("settledRequestCount", invoice.getLineItems() != null ? invoice.getLineItems().size() : 0);
         return result;
     }
 

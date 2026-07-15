@@ -12,12 +12,14 @@ import com.squad.backend.model.Auth;
 import com.squad.backend.model.Club;
 import com.squad.backend.model.ConfirmationRequest;
 import com.squad.backend.model.InviteToken;
+import com.squad.backend.model.PaymentInvoice;
 import com.squad.backend.model.Player;
 import com.squad.backend.model.Session;
 import com.squad.backend.model.User;
 import com.squad.backend.repository.ClubRepository;
 import com.squad.backend.repository.ConfirmationRequestRepository;
 import com.squad.backend.repository.InviteTokenRepository;
+import com.squad.backend.repository.PaymentInvoiceRepository;
 import com.squad.backend.repository.PlayerRepository;
 import com.squad.backend.repository.SessionRepository;
 import com.squad.backend.repository.UserRepository;
@@ -48,6 +50,7 @@ public class InviteTokenService {
     private final ClubRepository clubRepository;
     private final ConfirmationRequestRepository confirmationRequestRepository;
     private final SessionRepository sessionRepository;
+    private final PaymentInvoiceRepository paymentInvoiceRepository;
     private final JwtTokenProvider jwtTokenProvider;
 
     @Autowired
@@ -107,6 +110,9 @@ public class InviteTokenService {
         }
         if (InvitePurpose.PAYMENT_REQUEST.equals(token.getPurpose())) {
             return resolvePaymentRequest(token);
+        }
+        if (InvitePurpose.PAYMENT_INVOICE.equals(token.getPurpose())) {
+            return resolvePaymentInvoice(token);
         }
         if (InvitePurpose.SESSION_CONFIRMATION.equals(token.getPurpose())) {
             return resolveSessionConfirmation(token);
@@ -229,6 +235,26 @@ public class InviteTokenService {
                 .build();
     }
 
+    private InviteResolveResponse resolvePaymentInvoice(InviteToken token) {
+        // entityId is payment invoice id
+        PaymentInvoice invoice = paymentInvoiceRepository.findById(token.getEntityId())
+                .orElseThrow(() -> new IllegalArgumentException(ErrorMessages.INVITE_LINK_INVALID));
+        if ("CANCELLED".equalsIgnoreCase(invoice.getStatus())) {
+            throw new IllegalArgumentException(ErrorMessages.INVITE_LINK_INVALID);
+        }
+
+        String accessToken = jwtTokenProvider.generateToken(token.getEntityId(), inviteExpirationMs);
+        return InviteResolveResponse.builder()
+                .purpose(token.getPurpose())
+                .entityId(token.getEntityId())
+                .clubId(token.getClubId())
+                .seasonId(token.getSeasonId())
+                .clubName(resolveClubName(token.getClubId()))
+                .accessToken(accessToken)
+                .expiresAt(token.getExpiresAt())
+                .build();
+    }
+
     private InviteResolveResponse resolveSessionConfirmation(InviteToken token) {
         Session session = sessionRepository.findById(token.getEntityId())
                 .orElseThrow(() -> new IllegalArgumentException(ErrorMessages.INVITE_LINK_INVALID));
@@ -295,6 +321,7 @@ public class InviteTokenService {
         }
         if (token.getUsedAt() != null) {
             if (InvitePurpose.PAYMENT_REQUEST.equals(token.getPurpose())
+                    || InvitePurpose.PAYMENT_INVOICE.equals(token.getPurpose())
                     || InvitePurpose.SESSION_CONFIRMATION.equals(token.getPurpose())) {
                 throw new IllegalArgumentException(ErrorMessages.INVITE_LINK_INVALID);
             }
@@ -305,6 +332,7 @@ public class InviteTokenService {
         }
         if (token.getExpiresAt() != null && token.getExpiresAt().isBefore(Instant.now())) {
             if (InvitePurpose.PAYMENT_REQUEST.equals(token.getPurpose())
+                    || InvitePurpose.PAYMENT_INVOICE.equals(token.getPurpose())
                     || InvitePurpose.SESSION_CONFIRMATION.equals(token.getPurpose())) {
                 throw new InviteTokenExpiredException(ErrorMessages.INVITE_LINK_REVOKED);
             }
@@ -326,6 +354,14 @@ public class InviteTokenService {
         if (!activeTokens.isEmpty()) {
             inviteTokenRepository.saveAll(activeTokens);
         }
+    }
+
+    /** Public revoke for superseded payment invoices (safe to call from PaymentInvoiceService). */
+    public void revokeActiveTokensForEntity(String purpose, String entityId) {
+        if (purpose == null || entityId == null || entityId.isBlank()) {
+            return;
+        }
+        revokeActiveTokens(purpose, entityId);
     }
 
     private void markUsed(InviteToken token) {
