@@ -692,10 +692,17 @@ public class ConfirmationRequestService {
 
         Set<String> allPlayerIds = new HashSet<>();
         for (String teamId : teamList) {
+            if (teamId == null || teamId.isBlank()) {
+                continue;
+            }
             com.squad.backend.model.Team team = teamRepository.findById(teamId.trim()).orElse(null);
             if (team != null && Boolean.TRUE.equals(team.getIsActive())
                     && team.getPlayersList() != null && !team.getPlayersList().isEmpty()) {
-                allPlayerIds.addAll(Arrays.asList(team.getPlayersList().split(",")));
+                for (String pid : team.getPlayersList().split(",")) {
+                    if (pid != null && !pid.isBlank()) {
+                        allPlayerIds.add(pid.trim());
+                    }
+                }
             }
         }
         for (String playerId : additionalPlayers) {
