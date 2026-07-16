@@ -151,10 +151,17 @@ public class PaymentInvoiceService {
                 "whatsapp".equals(method) ? InviteChannel.WHATSAPP : InviteChannel.EMAIL,
                 auth.getId());
         String paymentUrl = invite.inviteLink();
+        String playerName = ((player.getFirstName() != null ? player.getFirstName() : "")
+                + " " + (player.getLastName() != null ? player.getLastName() : "")).trim();
+        if (playerName.isEmpty()) {
+            playerName = "Player";
+        }
 
         if ("whatsapp".equals(method)) {
             return CreateOutstandingInvoiceResponse.builder()
                     .invoiceId(saved.getId())
+                    .playerId(player.getId())
+                    .playerName(playerName)
                     .paymentUrl(paymentUrl)
                     .totalAmount(saved.getTotalAmount())
                     .lineItemCount(saved.getLineItems() != null ? saved.getLineItems().size() : 0)
@@ -165,8 +172,6 @@ public class PaymentInvoiceService {
                     .build();
         }
 
-        String playerName = ((player.getFirstName() != null ? player.getFirstName() : "")
-                + " " + (player.getLastName() != null ? player.getLastName() : "")).trim();
         Map<String, String> templateData = new HashMap<>();
         templateData.put("emailTitle", "Squad STM - Outstanding Payment");
         templateData.put("emailHeading", "Outstanding Payment Invoice");
@@ -193,6 +198,8 @@ public class PaymentInvoiceService {
 
         return CreateOutstandingInvoiceResponse.builder()
                 .invoiceId(saved.getId())
+                .playerId(player.getId())
+                .playerName(playerName)
                 .paymentUrl(paymentUrl)
                 .totalAmount(saved.getTotalAmount())
                 .lineItemCount(saved.getLineItems() != null ? saved.getLineItems().size() : 0)

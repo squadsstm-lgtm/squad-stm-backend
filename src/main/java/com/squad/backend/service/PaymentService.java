@@ -288,6 +288,40 @@ public class PaymentService {
             throw new IllegalArgumentException("Payment not completed");
         }
 
+        String metaInvoiceId = paymentIntent.getMetadata() != null
+                ? paymentIntent.getMetadata().get("invoiceId")
+                : null;
+        if (metaInvoiceId == null || !metaInvoiceId.equals(invoice.getId())) {
+            throw new IllegalArgumentException("Payment does not match this invoice");
+        }
+        String paymentType = paymentIntent.getMetadata() != null
+                ? paymentIntent.getMetadata().get("paymentType")
+                : null;
+        if (paymentType != null && !"invoice".equalsIgnoreCase(paymentType)) {
+            throw new IllegalArgumentException("Payment does not match this invoice");
+        }
+
+        long expectedCents = Math.round(invoice.getTotalAmount() * 100);
+        Long paidCents = paymentIntent.getAmountReceived() != null && paymentIntent.getAmountReceived() > 0
+                ? paymentIntent.getAmountReceived()
+                : paymentIntent.getAmount();
+        if (paidCents == null || Math.abs(paidCents - expectedCents) > 1) {
+            throw new IllegalArgumentException("Paid amount does not match invoice total");
+        }
+
+        if (invoice.getLineItems() != null) {
+            for (PaymentInvoice.LineItem line : invoice.getLineItems()) {
+                if (line.getRequestId() == null) {
+                    continue;
+                }
+                ConfirmationRequest alreadyPaid = confirmationRequestRepository.findById(line.getRequestId()).orElse(null);
+                if (alreadyPaid != null && "Yes".equalsIgnoreCase(alreadyPaid.getPayment())) {
+                    throw new IllegalArgumentException(
+                            "One or more sessions on this invoice were already paid. Ask your club for a new outstanding invoice link.");
+                }
+            }
+        }
+
         String chargeId = null;
         try {
             if (paymentIntent.getLatestCharge() != null) {
@@ -315,7 +349,7 @@ public class PaymentService {
         transaction.setSessionId(invoice.getLineItems() != null && !invoice.getLineItems().isEmpty()
                 ? invoice.getLineItems().get(0).getSessionId()
                 : null);
-        transaction.setAmount(request.getAmount());
+        transaction.setAmount(invoice.getTotalAmount());
         transaction.setCurrency(request.getCurrency() != null ? request.getCurrency() : "GBP");
         transaction.setType("payment");
         transaction.setStatus("completed");
@@ -328,7 +362,7 @@ public class PaymentService {
         transaction.setStripeCustomerId(stripeCustomer.getId());
         transaction.setStripeCustomerStripeId(stripeCustomer.getStripeCustomerId());
         transaction.setProcessingFee(0.0);
-        transaction.setDescription("Outstanding invoice payment - " + request.getAmount() + " "
+        transaction.setDescription("Outstanding invoice payment - " + invoice.getTotalAmount() + " "
                 + (request.getCurrency() != null ? request.getCurrency() : "GBP"));
         transaction.setNotes("Invoice: " + invoice.getId() + "; Stripe PI: " + request.getPaymentIntentId());
         if (invoice.getLineItems() != null) {
@@ -342,8 +376,8 @@ public class PaymentService {
         transaction.setCompletedAt(Instant.now());
         transaction = transactionRepository.save(transaction);
 
-        clubWalletService.addEarnings(invoice.getClubId(), request.getAmount());
-        stripeCustomer.updatePaymentStats(request.getAmount());
+        clubWalletService.addEarnings(invoice.getClubId(), invoice.getTotalAmount());
+        stripeCustomer.updatePaymentStats(invoice.getTotalAmount());
         stripeCustomerRepository.save(stripeCustomer);
 
         Instant now = Instant.now();

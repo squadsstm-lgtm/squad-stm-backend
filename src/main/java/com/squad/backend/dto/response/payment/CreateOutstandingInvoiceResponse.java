@@ -11,6 +11,8 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class CreateOutstandingInvoiceResponse {
     private String invoiceId;
+    private String playerId;
+    private String playerName;
     private String paymentUrl;
     private Double totalAmount;
     private int lineItemCount;
