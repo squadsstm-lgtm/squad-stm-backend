@@ -53,6 +53,10 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.PUT, "/api/requests/update").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/payments/create-payment-intent").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/payments/confirm-payment").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/payments/invoices/from-request/*/*").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/payments/invoices/*/*").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/payments/invoices/create-payment-intent").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/payments/invoices/confirm-payment").permitAll()
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);

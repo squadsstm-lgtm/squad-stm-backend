@@ -6,8 +6,12 @@ import com.squad.backend.dto.response.ApiResponse;
 import com.squad.backend.dto.response.PageMetaResponse;
 import com.squad.backend.dto.response.clubwallet.PagedWithdrawalsResponse;
 import com.squad.backend.dto.response.clubwallet.WithdrawalRequestResponse;
+import com.squad.backend.dto.response.masterpanel.MasterClubDetailResponse;
+import com.squad.backend.dto.response.masterpanel.MasterClubsListResponse;
+import com.squad.backend.dto.response.masterpanel.MasterClubsPlatformSummaryResponse;
 import com.squad.backend.model.Auth;
 import com.squad.backend.service.ClubWalletService;
+import com.squad.backend.service.MasterPanelClubsService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,6 +29,69 @@ import java.util.Map;
 public class MasterPanelController {
 
     private final ClubWalletService clubWalletService;
+    private final MasterPanelClubsService masterPanelClubsService;
+
+    private boolean isController(Auth auth) {
+        return auth != null && "Controller".equalsIgnoreCase(auth.getRole());
+    }
+
+    @GetMapping("/clubs/summary")
+    public ResponseEntity<ApiResponse<MasterClubsPlatformSummaryResponse>> getClubsSummary(
+            @AuthenticationPrincipal Auth auth) {
+        if (!isController(auth)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Forbidden"));
+        }
+        try {
+            MasterClubsPlatformSummaryResponse data =
+                    masterPanelClubsService.getPlatformSummary(auth.getSeasonId());
+            return ResponseEntity.ok(ApiResponse.success(data));
+        } catch (Exception e) {
+            log.error("Master panel clubs summary error: ", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error(ErrorMessages.AN_ERROR_OCCURRED));
+        }
+    }
+
+    @GetMapping("/clubs")
+    public ResponseEntity<ApiResponse<MasterClubsListResponse>> getClubs(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "20") Integer limit,
+            @AuthenticationPrincipal Auth auth) {
+        if (!isController(auth)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Forbidden"));
+        }
+        try {
+            MasterClubsListResponse data = masterPanelClubsService.getClubs(
+                    auth.getSeasonId(), search, status, page, limit);
+            return ResponseEntity.ok(ApiResponse.success(data));
+        } catch (Exception e) {
+            log.error("Master panel clubs list error: ", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error(ErrorMessages.AN_ERROR_OCCURRED));
+        }
+    }
+
+    @GetMapping("/clubs/{clubId}")
+    public ResponseEntity<ApiResponse<MasterClubDetailResponse>> getClubDetail(
+            @PathVariable String clubId,
+            @AuthenticationPrincipal Auth auth) {
+        if (!isController(auth)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Forbidden"));
+        }
+        try {
+            MasterClubDetailResponse data =
+                    masterPanelClubsService.getClubDetail(clubId, auth.getSeasonId());
+            return ResponseEntity.ok(ApiResponse.success(data));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error(e.getMessage()));
+        } catch (Exception e) {
+            log.error("Master panel club detail error: ", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error(ErrorMessages.AN_ERROR_OCCURRED));
+        }
+    }
 
     @GetMapping("/withdrawals")
     public ResponseEntity<ApiResponse<PagedWithdrawalsResponse>> getWithdrawals(
@@ -32,7 +99,7 @@ public class MasterPanelController {
             @RequestParam(defaultValue = "1") Integer page,
             @RequestParam(defaultValue = "20") Integer limit,
             @AuthenticationPrincipal Auth auth) {
-        if (auth == null || !"Controller".equalsIgnoreCase(auth.getRole())) {
+        if (!isController(auth)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Forbidden"));
         }
         try {
@@ -60,7 +127,7 @@ public class MasterPanelController {
     public ResponseEntity<ApiResponse<Map<String, String>>> getWithdrawalAccountDetails(
             @PathVariable String withdrawalId,
             @AuthenticationPrincipal Auth auth) {
-        if (auth == null || !"Controller".equalsIgnoreCase(auth.getRole())) {
+        if (!isController(auth)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Forbidden"));
         }
         try {
@@ -80,7 +147,7 @@ public class MasterPanelController {
             @PathVariable String withdrawalId,
             @Valid @RequestBody UpdateWithdrawalRequest request,
             @AuthenticationPrincipal Auth auth) {
-        if (auth == null || !"Controller".equalsIgnoreCase(auth.getRole())) {
+        if (!isController(auth)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Forbidden"));
         }
         try {
