@@ -2,6 +2,7 @@ package com.squad.backend.service;
 
 import com.squad.backend.constants.ErrorMessages;
 import com.squad.backend.constants.InvitePurpose;
+import com.squad.backend.dto.request.masterpanel.CompleteControllerInviteRequest;
 import com.squad.backend.dto.request.player.CreatePlayerRequest;
 import com.squad.backend.dto.request.user.CreateUserRequest;
 import com.squad.backend.dto.response.invite.InviteResolveResponse;
@@ -16,6 +17,7 @@ import com.squad.backend.model.PaymentInvoice;
 import com.squad.backend.model.Player;
 import com.squad.backend.model.Session;
 import com.squad.backend.model.User;
+import com.squad.backend.repository.AuthRepository;
 import com.squad.backend.repository.ClubRepository;
 import com.squad.backend.repository.ConfirmationRequestRepository;
 import com.squad.backend.repository.InviteTokenRepository;
@@ -47,6 +49,7 @@ public class InviteTokenService {
     private final InviteTokenRepository inviteTokenRepository;
     private final PlayerRepository playerRepository;
     private final UserRepository userRepository;
+    private final AuthRepository authRepository;
     private final ClubRepository clubRepository;
     private final ConfirmationRequestRepository confirmationRequestRepository;
     private final SessionRepository sessionRepository;
@@ -60,6 +63,10 @@ public class InviteTokenService {
     @Autowired
     @Lazy
     private UserService userService;
+
+    @Autowired
+    @Lazy
+    private ControllerPermissionsService controllerPermissionsService;
 
     @Value("${app.frontend-url}")
     private String frontendUrl;
@@ -117,6 +124,9 @@ public class InviteTokenService {
         if (InvitePurpose.SESSION_CONFIRMATION.equals(token.getPurpose())) {
             return resolveSessionConfirmation(token);
         }
+        if (InvitePurpose.CONTROLLER_PROFILE.equals(token.getPurpose())) {
+            return resolveControllerProfile(token);
+        }
         throw new IllegalArgumentException(ErrorMessages.INVITE_LINK_INVALID);
     }
 
@@ -166,6 +176,38 @@ public class InviteTokenService {
         Auth response = userService.completeUserProfile(token.getEntityId(), request);
         markUsed(token);
         return response;
+    }
+
+    public Auth completeControllerProfile(String code, CompleteControllerInviteRequest request) {
+        InviteToken token = validateActiveToken(code);
+        if (!InvitePurpose.CONTROLLER_PROFILE.equals(token.getPurpose())) {
+            throw new IllegalArgumentException(ErrorMessages.INVITE_LINK_INVALID);
+        }
+        Auth auth = authRepository.findById(token.getEntityId())
+                .orElseThrow(() -> new IllegalArgumentException(ErrorMessages.INVITE_LINK_INVALID));
+        if (!controllerPermissionsService.isPendingControllerInvite(auth)) {
+            throw new IllegalArgumentException(ErrorMessages.CONTROLLER_INVITE_ALREADY_SUBMITTED);
+        }
+        Auth response = controllerPermissionsService.completeControllerInvite(token.getEntityId(), request);
+        markUsed(token);
+        return response;
+    }
+
+    private InviteResolveResponse resolveControllerProfile(InviteToken token) {
+        Auth auth = authRepository.findById(token.getEntityId())
+                .orElseThrow(() -> new IllegalArgumentException(ErrorMessages.INVITE_LINK_INVALID));
+        if (!controllerPermissionsService.isPendingControllerInvite(auth)) {
+            throw new IllegalArgumentException(ErrorMessages.CONTROLLER_INVITE_ALREADY_SUBMITTED);
+        }
+        return InviteResolveResponse.builder()
+                .purpose(token.getPurpose())
+                .entityId(auth.getId())
+                .email(auth.getEmail())
+                .phone(auth.getPhone())
+                .role("Controller")
+                .canPrefill(true)
+                .expiresAt(token.getExpiresAt())
+                .build();
     }
 
     private InviteResolveResponse resolvePlayerProfile(InviteToken token) {
@@ -325,6 +367,9 @@ public class InviteTokenService {
                     || InvitePurpose.SESSION_CONFIRMATION.equals(token.getPurpose())) {
                 throw new IllegalArgumentException(ErrorMessages.INVITE_LINK_INVALID);
             }
+            if (InvitePurpose.CONTROLLER_PROFILE.equals(token.getPurpose())) {
+                throw new IllegalArgumentException(ErrorMessages.CONTROLLER_INVITE_ALREADY_SUBMITTED);
+            }
             throw new IllegalArgumentException(
                     InvitePurpose.USER_PROFILE.equals(token.getPurpose())
                             ? ErrorMessages.USER_INVITE_ALREADY_SUBMITTED
@@ -335,6 +380,9 @@ public class InviteTokenService {
                     || InvitePurpose.PAYMENT_INVOICE.equals(token.getPurpose())
                     || InvitePurpose.SESSION_CONFIRMATION.equals(token.getPurpose())) {
                 throw new InviteTokenExpiredException(ErrorMessages.INVITE_LINK_REVOKED);
+            }
+            if (InvitePurpose.CONTROLLER_PROFILE.equals(token.getPurpose())) {
+                throw new InviteTokenExpiredException(ErrorMessages.CONTROLLER_INVITE_LINK_EXPIRED);
             }
             throw new InviteTokenExpiredException(
                     InvitePurpose.USER_PROFILE.equals(token.getPurpose())

@@ -19,6 +19,7 @@ import com.squad.backend.dto.response.auth.TokenRefreshResponse;
 import com.squad.backend.dto.response.auth.UserProfileResponse;
 import com.squad.backend.dto.response.auth.ValidateAccessTokenResponse;
 import com.squad.backend.dto.response.auth.VerifyTokenResponse;
+import com.squad.backend.dto.response.masterpanel.ControllerPermissionsResponse;
 import com.squad.backend.model.Auth;
 import com.squad.backend.model.Club;
 import com.squad.backend.model.Permission;
@@ -32,7 +33,9 @@ import com.squad.backend.repository.SeasonRepository;
 import com.squad.backend.security.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -58,6 +61,10 @@ public class AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final EmailService emailService;
     private final FirebaseService firebaseService;
+
+    @Autowired
+    @Lazy
+    private ControllerPermissionsService controllerPermissionsService;
 
     @Value("${app.frontend-url}")
     private String frontendUrl;
@@ -365,10 +372,13 @@ public class AuthService {
         return false;
     }
 
-    /** Blocked accounts must not authenticate, refresh tokens, or change credentials. */
+    /** Blocked or inactive accounts must not authenticate, refresh tokens, or change credentials. */
     private void requireAuthNotBlocked(Auth auth) {
         if (auth != null && Boolean.TRUE.equals(auth.getIsBlocked())) {
             throw new IllegalArgumentException(ErrorMessages.USER_BLOCKED);
+        }
+        if (auth != null && Boolean.TRUE.equals(auth.getIsInactive())) {
+            throw new IllegalArgumentException(ErrorMessages.USER_INACTIVE);
         }
     }
 
@@ -378,6 +388,9 @@ public class AuthService {
 
         if (Boolean.TRUE.equals(auth.getIsBlocked())) {
             throw new IllegalArgumentException(ErrorMessages.USER_BLOCKED);
+        }
+        if (Boolean.TRUE.equals(auth.getIsInactive())) {
+            throw new IllegalArgumentException(ErrorMessages.USER_INACTIVE);
         }
 
         if (!Boolean.TRUE.equals(auth.getIsVerified())) {
@@ -394,6 +407,8 @@ public class AuthService {
             if (!passwordEncoder.matches(request.getPassword(), auth.getPassword())) {
                 throw new IllegalArgumentException(ErrorMessages.INVALID_PASSWORD);
             }
+        } else if ("Controller".equalsIgnoreCase(auth.getRole())) {
+            throw new IllegalArgumentException("Account setup incomplete. Please use your invite link first.");
         }
 
         if ("Controller".equalsIgnoreCase(auth.getRole())) {
@@ -408,6 +423,11 @@ public class AuthService {
         String accessToken = jwtTokenProvider.generateToken(auth.getId(), 3600000L);
         String refreshToken = jwtTokenProvider.generateToken(auth.getId(), 86400000L);
 
+        ControllerPermissionsResponse controllerPermissions = null;
+        if ("Controller".equalsIgnoreCase(auth.getRole())) {
+            controllerPermissions = controllerPermissionsService.getOrBootstrapPermissions(auth.getId());
+        }
+
         return AuthResponse.builder()
                 .accessToken(accessToken)
                 .refreshToken(refreshToken)
@@ -417,6 +437,7 @@ public class AuthService {
                 .firstName(auth.getFirstName())
                 .lastName(auth.getLastName())
                 .role(auth.getRole() != null ? auth.getRole() : "")
+                .controllerPermissions(controllerPermissions)
                 .build();
     }
 
@@ -664,6 +685,10 @@ public class AuthService {
             AuthUserInfoResponse userData = authToUserInfo(user);
             userData.setHasMpin(hasMpin(user.getId()));
             if (season != null) userData.setSeasonDetails(season);
+            if ("Controller".equalsIgnoreCase(user.getRole())) {
+                userData.setControllerPermissions(
+                        controllerPermissionsService.getOrBootstrapPermissions(user.getId()));
+            }
             return ValidateAccessTokenResponse.builder().user(userData).build();
         }
         return ValidateAccessTokenResponse.builder().user(null).build();
@@ -743,7 +768,9 @@ public class AuthService {
         auth.setForgotMpinToken(null);
         auth.setForgotMpinTokenExpiry(null);
         seasonRepository.findByActive(true).ifPresent(season -> auth.setSeasonId(season.getId()));
-        return authRepository.save(auth);
+        Auth saved = authRepository.save(auth);
+        controllerPermissionsService.createFullPermissions(saved.getId(), "seed");
+        return saved;
     }
 
     public boolean checkEmailAvailability(String email) {

@@ -14,6 +14,7 @@ public class ErrorMessages {
     public static final String PHONE_ALREADY_EXISTS = "Phone number is already registered.";
     public static final String INVALID_PASSWORD = "Invalid password";
     public static final String USER_BLOCKED = "User Blocked.";
+    public static final String USER_INACTIVE = "Account is inactive.";
     public static final String USER_NOT_VERIFIED = "User not verified. A verification email has been sent to your email.";
     public static final String TOKEN_INVALID = "Token is invalid";
     
@@ -32,7 +33,14 @@ public class ErrorMessages {
     public static final String INVITE_LINK_REVOKED = "This link is no longer valid";
     public static final String USER_INVITE_ALREADY_SUBMITTED = "This form has already been submitted.";
     public static final String USER_INVITE_LINK_EXPIRED = "This invite link has expired. Please contact your club administrator for a new invitation.";
+    public static final String CONTROLLER_INVITE_ALREADY_SUBMITTED = "This form has already been submitted.";
+    public static final String CONTROLLER_INVITE_LINK_EXPIRED = "This invite link has expired. Please contact a Master Panel controller for a new invitation.";
     public static final String PLAYER_HAS_ACTIVE_SESSION = "This Player have active session.";
+    public static final String CONTROLLER_PERMISSION_DENIED = "You do not have permission to perform this action.";
+    public static final String CONTROLLER_CANNOT_EDIT_SELF = "You cannot change your own permissions.";
+    public static final String CONTROLLER_LAST_MANAGER = "At least one Controller must retain Manage Controllers permission.";
+    public static final String CONTROLLER_NOT_FOUND = "Controller not found";
+    public static final String CONTROLLER_INVITE_PENDING_ONLY = "Only pending Controller invites can be revoked this way.";
     
     public static final String TEAM_NOT_FOUND = "Team not found";
     public static final String TEAM_HAS_ACTIVE_SESSION = "This Team have active session.";

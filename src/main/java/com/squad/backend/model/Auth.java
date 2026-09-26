@@ -42,6 +42,8 @@ public class Auth {
     private String role;
     private String userId;
     private Boolean isBlocked;
+    /** Soft off for Controllers (and optional elsewhere). Distinct from isBlocked. */
+    private Boolean isInactive;
     
     @Version
     @Field("__v")
