@@ -68,7 +68,10 @@ public class EncryptionService {
         if (!value.startsWith(PREFIX)) return value; // stored as plaintext (e.g. before encryption was enabled)
 
         byte[] key = getKey();
-        if (key == null) return value;
+        if (key == null) {
+            log.warn("Cannot decrypt bank details: app.encryption.key is missing or is not a 32-byte base64 key");
+            return null;
+        }
 
         try {
             String b64 = value.substring(PREFIX.length());
@@ -84,19 +87,29 @@ public class EncryptionService {
             cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), spec);
             return new String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8);
         } catch (Exception e) {
-            log.warn("Decryption failed, returning value as-is: {}", e.getMessage());
-            return value;
+            log.warn("Decryption failed: {}", e.getMessage());
+            return null;
         }
     }
 
     private byte[] getKey() {
         if (base64Key == null || base64Key.isBlank()) return null;
+        String trimmed = base64Key.trim();
+        if ("change-me-base64-key".equals(trimmed)) return null;
+        byte[] key = decodeKey(trimmed);
+        if (key == null || key.length != 32) return null;
+        return key;
+    }
+
+    private byte[] decodeKey(String trimmed) {
         try {
-            byte[] key = Base64.getDecoder().decode(base64Key.trim());
-            if (key.length != 32) return null;
-            return key;
-        } catch (Exception e) {
-            return null;
+            return Base64.getDecoder().decode(trimmed);
+        } catch (IllegalArgumentException ignored) {
+            try {
+                return Base64.getUrlDecoder().decode(trimmed);
+            } catch (IllegalArgumentException e) {
+                return null;
+            }
         }
     }
 }

@@ -367,17 +367,49 @@ public class ClubWalletService {
     public Map<String, String> getWithdrawalAccountDetailsForController(String withdrawalId) {
         WithdrawalRequest w = withdrawalRequestRepository.findById(withdrawalId)
                 .orElseThrow(() -> new IllegalArgumentException("Withdrawal request not found"));
-        if (w.getBankAccount() == null) {
-            return Map.of("accountName", "", "sortCode", "", "accountNumber", "");
+        String accountName = "";
+        String sortDigits = "";
+        String accountDigits = "";
+        if (w.getBankAccount() != null) {
+            accountName = w.getBankAccount().getAccountName() != null ? w.getBankAccount().getAccountName() : "";
+            sortDigits = bankDigits(w.getBankAccount().getSortCode());
+            accountDigits = bankDigits(w.getBankAccount().getAccountNumber());
         }
-        String sortCodeRaw = encryptionService.decrypt(w.getBankAccount().getSortCode());
-        String accountNumberRaw = encryptionService.decrypt(w.getBankAccount().getAccountNumber());
-        String sortCodeFormatted = sortCodeRaw != null && sortCodeRaw.replaceAll("\\D", "").length() == 6
-                ? formatSortCodeDisplay(sortCodeRaw)
-                : (sortCodeRaw != null ? sortCodeRaw : "");
-        String accountNumber = accountNumberRaw != null ? normalizeBankValue(accountNumberRaw) : "";
-        String accountName = w.getBankAccount().getAccountName() != null ? w.getBankAccount().getAccountName() : "";
-        return Map.of("accountName", accountName, "sortCode", sortCodeFormatted, "accountNumber", accountNumber);
+        if (sortDigits.length() != 6 || accountDigits.length() != 8) {
+            ClubWallet wallet = clubWalletRepository.findByClubId(w.getClubId()).orElse(null);
+            if (wallet != null) {
+                if (sortDigits.length() != 6) {
+                    String fromWallet = bankDigits(wallet.getPayoutSortCode());
+                    if (fromWallet.length() == 6) sortDigits = fromWallet;
+                }
+                if (accountDigits.length() != 8) {
+                    String fromWallet = bankDigits(wallet.getPayoutAccountNumber());
+                    if (fromWallet.length() == 8) accountDigits = fromWallet;
+                }
+                if (accountName.isEmpty() && wallet.getPayoutAccountName() != null) {
+                    accountName = wallet.getPayoutAccountName();
+                }
+            }
+        }
+        String sortCode = sortDigits.length() == 6 ? formatSortCodeDisplay(sortDigits) : "";
+        String accountNumber = accountDigits.length() == 8 ? accountDigits : "";
+        return Map.of(
+                "accountName", accountName,
+                "sortCode", sortCode != null ? sortCode : "",
+                "accountNumber", accountNumber);
+    }
+
+    /** Digits from a stored bank field. Ciphertext is never returned. */
+    private String bankDigits(String stored) {
+        if (stored == null || stored.isEmpty()) return "";
+        String value = stored;
+        for (int i = 0; i < 3 && value.startsWith("ENC:"); i++) {
+            String next = encryptionService.decrypt(value);
+            if (next == null || next.equals(value)) return "";
+            value = next;
+        }
+        if (value.startsWith("ENC:")) return "";
+        return value.replaceAll("\\D", "");
     }
 
     public PagedControllerWithdrawalResult getWithdrawalsForControllerPaged(String status, int page, int limit) {
