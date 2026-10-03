@@ -6,6 +6,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 @Data
 @Builder
 @NoArgsConstructor
@@ -21,4 +23,6 @@ public class AuthResponse {
     private String role;
     /** Present only for Controller role — loaded once at login. */
     private ControllerPermissionsResponse controllerPermissions;
+    /** Pages whose first-visit walkthrough is already done. Empty until they finish or skip. */
+    private List<String> seenWalkthroughPages;
 }
