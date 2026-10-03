@@ -32,4 +32,8 @@ public interface AuthRepository extends MongoRepository<Auth, String> {
     
     /** Check if any Auth has the given role (e.g. "Controller"). */
     boolean existsByRole(String role);
+
+    List<Auth> findByRole(String role);
+
+    List<Auth> findByRoleIgnoreCase(String role);
 }

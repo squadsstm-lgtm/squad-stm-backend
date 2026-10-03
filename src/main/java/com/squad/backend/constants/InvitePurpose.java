@@ -7,6 +7,8 @@ public final class InvitePurpose {
     public static final String PAYMENT_REQUEST = "PAYMENT_REQUEST";
     /** Frozen multi-session outstanding balance invoice. */
     public static final String PAYMENT_INVOICE = "PAYMENT_INVOICE";
+    /** Master Panel Controller invite — entityId is Auth id. */
+    public static final String CONTROLLER_PROFILE = "CONTROLLER_PROFILE";
 
     private InvitePurpose() {
     }

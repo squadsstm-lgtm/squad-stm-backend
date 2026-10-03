@@ -1,6 +1,7 @@
 package com.squad.backend.dto.response.auth;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.squad.backend.dto.response.masterpanel.ControllerPermissionsResponse;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -29,4 +30,6 @@ public class AuthUserInfoResponse {
     private String phone;
     private Boolean hasMpin;
     private Object seasonDetails;
+    /** Present only for Controller role. */
+    private ControllerPermissionsResponse controllerPermissions;
 }

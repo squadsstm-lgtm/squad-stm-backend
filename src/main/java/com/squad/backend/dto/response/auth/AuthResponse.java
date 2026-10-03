@@ -1,5 +1,6 @@
 package com.squad.backend.dto.response.auth;
 
+import com.squad.backend.dto.response.masterpanel.ControllerPermissionsResponse;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -18,4 +19,6 @@ public class AuthResponse {
     private String firstName;
     private String lastName;
     private String role;
+    /** Present only for Controller role — loaded once at login. */
+    private ControllerPermissionsResponse controllerPermissions;
 }

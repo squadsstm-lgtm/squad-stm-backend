@@ -112,7 +112,7 @@ public class AuthController {
             HttpStatus status = HttpStatus.BAD_REQUEST;
             if (ErrorMessages.USER_NOT_FOUND.equals(e.getMessage())) {
                 status = HttpStatus.NOT_FOUND;
-            } else if (ErrorMessages.USER_BLOCKED.equals(e.getMessage()) || ErrorMessages.USER_NOT_VERIFIED.equals(e.getMessage())) {
+            } else if ((ErrorMessages.USER_BLOCKED.equals(e.getMessage()) || ErrorMessages.USER_INACTIVE.equals(e.getMessage())) || ErrorMessages.USER_NOT_VERIFIED.equals(e.getMessage())) {
                 status = HttpStatus.FORBIDDEN;
             } else if (ErrorMessages.INVALID_PASSWORD.equals(e.getMessage())) {
                 status = HttpStatus.UNAUTHORIZED;
@@ -137,7 +137,7 @@ public class AuthController {
                     .body(ApiResponse.success(response));
         } catch (IllegalArgumentException e) {
             HttpStatus status = HttpStatus.BAD_REQUEST;
-            if (ErrorMessages.USER_BLOCKED.equals(e.getMessage())) {
+            if ((ErrorMessages.USER_BLOCKED.equals(e.getMessage()) || ErrorMessages.USER_INACTIVE.equals(e.getMessage()))) {
                 status = HttpStatus.FORBIDDEN;
             }
             return ResponseEntity.status(status)
@@ -193,7 +193,7 @@ public class AuthController {
             UserProfileResponse profile = authService.getProfile(auth.getId());
             return ResponseEntity.ok(ApiResponse.success(profile));
         } catch (IllegalArgumentException e) {
-            HttpStatus status = ErrorMessages.USER_BLOCKED.equals(e.getMessage())
+            HttpStatus status = (ErrorMessages.USER_BLOCKED.equals(e.getMessage()) || ErrorMessages.USER_INACTIVE.equals(e.getMessage()))
                     ? HttpStatus.FORBIDDEN
                     : HttpStatus.NOT_FOUND;
             return ResponseEntity.status(status).body(ApiResponse.error(e.getMessage()));
@@ -221,7 +221,7 @@ public class AuthController {
             }
             return builder.body(ApiResponse.success(response, "Token is valid"));
         } catch (IllegalArgumentException e) {
-            HttpStatus status = ErrorMessages.USER_BLOCKED.equals(e.getMessage())
+            HttpStatus status = (ErrorMessages.USER_BLOCKED.equals(e.getMessage()) || ErrorMessages.USER_INACTIVE.equals(e.getMessage()))
                     ? HttpStatus.FORBIDDEN
                     : HttpStatus.UNAUTHORIZED;
             return ResponseEntity.status(status)
@@ -252,7 +252,7 @@ public class AuthController {
                     .header(HttpHeaders.SET_COOKIE, buildRefreshTokenCookie(tokens.getRefreshToken(), servletRequest).toString())
                     .body(ApiResponse.success(tokens));
         } catch (IllegalArgumentException e) {
-            HttpStatus status = ErrorMessages.USER_BLOCKED.equals(e.getMessage())
+            HttpStatus status = (ErrorMessages.USER_BLOCKED.equals(e.getMessage()) || ErrorMessages.USER_INACTIVE.equals(e.getMessage()))
                     ? HttpStatus.FORBIDDEN
                     : HttpStatus.UNAUTHORIZED;
             return ResponseEntity.status(status)
@@ -299,7 +299,7 @@ public class AuthController {
             authService.forgotPassword(request);
             return ResponseEntity.ok(ApiResponse.success((Void) null));
         } catch (IllegalArgumentException e) {
-            if (ErrorMessages.USER_BLOCKED.equals(e.getMessage())) {
+            if ((ErrorMessages.USER_BLOCKED.equals(e.getMessage()) || ErrorMessages.USER_INACTIVE.equals(e.getMessage()))) {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN)
                         .body(ApiResponse.error(e.getMessage()));
             }
@@ -326,7 +326,7 @@ public class AuthController {
             authService.resendVerificationEmail(request.getEmail());
             return ResponseEntity.ok(ApiResponse.success((Void) null, "Verification email sent. Please check your inbox."));
         } catch (IllegalArgumentException e) {
-            if (ErrorMessages.USER_BLOCKED.equals(e.getMessage())) {
+            if ((ErrorMessages.USER_BLOCKED.equals(e.getMessage()) || ErrorMessages.USER_INACTIVE.equals(e.getMessage()))) {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN)
                         .body(ApiResponse.error(e.getMessage()));
             }
@@ -353,7 +353,7 @@ public class AuthController {
             authService.resetPassword(request);
             return ResponseEntity.ok(ApiResponse.success((Void) null, "Password Updated Successfully"));
         } catch (IllegalArgumentException e) {
-            HttpStatus status = ErrorMessages.USER_BLOCKED.equals(e.getMessage())
+            HttpStatus status = (ErrorMessages.USER_BLOCKED.equals(e.getMessage()) || ErrorMessages.USER_INACTIVE.equals(e.getMessage()))
                     ? HttpStatus.FORBIDDEN
                     : HttpStatus.BAD_REQUEST;
             return ResponseEntity.status(status)
@@ -387,7 +387,7 @@ public class AuthController {
             ValidateAccessTokenResponse response = authService.validateAccessToken(token);
             return ResponseEntity.ok(ApiResponse.success(response, "Token is valid"));
         } catch (IllegalArgumentException e) {
-            HttpStatus status = ErrorMessages.USER_BLOCKED.equals(e.getMessage())
+            HttpStatus status = (ErrorMessages.USER_BLOCKED.equals(e.getMessage()) || ErrorMessages.USER_INACTIVE.equals(e.getMessage()))
                     ? HttpStatus.FORBIDDEN
                     : HttpStatus.UNAUTHORIZED;
             return ResponseEntity.status(status)
@@ -467,7 +467,7 @@ public class AuthController {
                     .header("Location", frontendUrl + "#/auth/success")
                     .build();
         } catch (IllegalArgumentException e) {
-            if (ErrorMessages.USER_BLOCKED.equals(e.getMessage())) {
+            if ((ErrorMessages.USER_BLOCKED.equals(e.getMessage()) || ErrorMessages.USER_INACTIVE.equals(e.getMessage()))) {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
             }
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
@@ -500,7 +500,7 @@ public class AuthController {
                     .build();
             return ResponseEntity.ok(ApiResponse.success(UpdateAuthResponse.builder().updateUser(updatedUser).build()));
         } catch (IllegalArgumentException e) {
-            HttpStatus status = ErrorMessages.USER_BLOCKED.equals(e.getMessage())
+            HttpStatus status = (ErrorMessages.USER_BLOCKED.equals(e.getMessage()) || ErrorMessages.USER_INACTIVE.equals(e.getMessage()))
                     ? HttpStatus.FORBIDDEN
                     : HttpStatus.NOT_FOUND;
             return ResponseEntity.status(status)
@@ -525,7 +525,7 @@ public class AuthController {
             boolean hasMpin = authService.hasMpin(authId);
             return ResponseEntity.ok(ApiResponse.success(MpinStatusResponse.builder().hasMpin(hasMpin).build()));
         } catch (IllegalArgumentException e) {
-            HttpStatus status = ErrorMessages.USER_BLOCKED.equals(e.getMessage())
+            HttpStatus status = (ErrorMessages.USER_BLOCKED.equals(e.getMessage()) || ErrorMessages.USER_INACTIVE.equals(e.getMessage()))
                     ? HttpStatus.FORBIDDEN
                     : HttpStatus.BAD_REQUEST;
             return ResponseEntity.status(status)
@@ -551,7 +551,7 @@ public class AuthController {
             authService.setMpin(authId, request);
             return ResponseEntity.ok(ApiResponse.success((Void) null, "MPIN set successfully"));
         } catch (IllegalArgumentException e) {
-            HttpStatus status = ErrorMessages.USER_BLOCKED.equals(e.getMessage())
+            HttpStatus status = (ErrorMessages.USER_BLOCKED.equals(e.getMessage()) || ErrorMessages.USER_INACTIVE.equals(e.getMessage()))
                     ? HttpStatus.FORBIDDEN
                     : HttpStatus.BAD_REQUEST;
             return ResponseEntity.status(status)
@@ -577,7 +577,7 @@ public class AuthController {
             authService.verifyMpin(authId, request);
             return ResponseEntity.ok(ApiResponse.success((Void) null, "MPIN verified"));
         } catch (IllegalArgumentException e) {
-            HttpStatus status = ErrorMessages.USER_BLOCKED.equals(e.getMessage())
+            HttpStatus status = (ErrorMessages.USER_BLOCKED.equals(e.getMessage()) || ErrorMessages.USER_INACTIVE.equals(e.getMessage()))
                     ? HttpStatus.FORBIDDEN
                     : HttpStatus.BAD_REQUEST;
             return ResponseEntity.status(status)
@@ -604,7 +604,7 @@ public class AuthController {
             return ResponseEntity.ok(ApiResponse.success((Void) null, "Password verified"));
         } catch (IllegalArgumentException e) {
             HttpStatus status = HttpStatus.BAD_REQUEST;
-            if (ErrorMessages.USER_BLOCKED.equals(e.getMessage())) {
+            if ((ErrorMessages.USER_BLOCKED.equals(e.getMessage()) || ErrorMessages.USER_INACTIVE.equals(e.getMessage()))) {
                 status = HttpStatus.FORBIDDEN;
             } else if (ErrorMessages.INVALID_PASSWORD.equals(e.getMessage())) {
                 status = HttpStatus.UNAUTHORIZED;
@@ -632,7 +632,7 @@ public class AuthController {
             return ResponseEntity.ok(ApiResponse.success((Void) null, "MPIN updated successfully"));
         } catch (IllegalArgumentException e) {
             HttpStatus status = HttpStatus.BAD_REQUEST;
-            if (ErrorMessages.USER_BLOCKED.equals(e.getMessage())) {
+            if ((ErrorMessages.USER_BLOCKED.equals(e.getMessage()) || ErrorMessages.USER_INACTIVE.equals(e.getMessage()))) {
                 status = HttpStatus.FORBIDDEN;
             } else if (ErrorMessages.INVALID_PASSWORD.equals(e.getMessage())) {
                 status = HttpStatus.UNAUTHORIZED;
@@ -660,7 +660,7 @@ public class AuthController {
             return ResponseEntity.ok(ApiResponse.success((Void) null, "Reset MPIN link sent to your email"));
         } catch (IllegalArgumentException e) {
             HttpStatus status = HttpStatus.BAD_REQUEST;
-            if (ErrorMessages.USER_BLOCKED.equals(e.getMessage())) {
+            if ((ErrorMessages.USER_BLOCKED.equals(e.getMessage()) || ErrorMessages.USER_INACTIVE.equals(e.getMessage()))) {
                 status = HttpStatus.FORBIDDEN;
             } else if (ErrorMessages.INVALID_PASSWORD.equals(e.getMessage())) {
                 status = HttpStatus.UNAUTHORIZED;
@@ -686,7 +686,7 @@ public class AuthController {
             authService.validateForgotMpinToken(token);
             return ResponseEntity.ok(ApiResponse.success((Void) null, "Token is valid"));
         } catch (IllegalArgumentException e) {
-            HttpStatus status = ErrorMessages.USER_BLOCKED.equals(e.getMessage())
+            HttpStatus status = (ErrorMessages.USER_BLOCKED.equals(e.getMessage()) || ErrorMessages.USER_INACTIVE.equals(e.getMessage()))
                     ? HttpStatus.FORBIDDEN
                     : HttpStatus.BAD_REQUEST;
             return ResponseEntity.status(status).body(ApiResponse.error(e.getMessage()));
@@ -704,7 +704,7 @@ public class AuthController {
             authService.resetMpinWithToken(request);
             return ResponseEntity.ok(ApiResponse.success((Void) null, "MPIN set successfully. You can now sign in and use Club Wallet."));
         } catch (IllegalArgumentException e) {
-            HttpStatus status = ErrorMessages.USER_BLOCKED.equals(e.getMessage())
+            HttpStatus status = (ErrorMessages.USER_BLOCKED.equals(e.getMessage()) || ErrorMessages.USER_INACTIVE.equals(e.getMessage()))
                     ? HttpStatus.FORBIDDEN
                     : HttpStatus.BAD_REQUEST;
             return ResponseEntity.status(status).body(ApiResponse.error(e.getMessage()));

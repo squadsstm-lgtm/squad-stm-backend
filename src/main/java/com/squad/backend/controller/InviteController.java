@@ -3,6 +3,7 @@ package com.squad.backend.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.squad.backend.constants.ErrorMessages;
 import com.squad.backend.dto.request.invite.SelectSessionPlayerRequest;
+import com.squad.backend.dto.request.masterpanel.CompleteControllerInviteRequest;
 import com.squad.backend.dto.request.player.CreatePlayerRequest;
 import com.squad.backend.dto.request.user.CreateUserRequest;
 import com.squad.backend.dto.response.ApiResponse;
@@ -52,7 +53,8 @@ public class InviteController {
                     .body(ApiResponse.error(e.getMessage()));
         } catch (IllegalArgumentException e) {
             if (ErrorMessages.PLAYER_INVITE_ALREADY_SUBMITTED.equals(e.getMessage())
-                    || ErrorMessages.USER_INVITE_ALREADY_SUBMITTED.equals(e.getMessage())) {
+                    || ErrorMessages.USER_INVITE_ALREADY_SUBMITTED.equals(e.getMessage())
+                    || ErrorMessages.CONTROLLER_INVITE_ALREADY_SUBMITTED.equals(e.getMessage())) {
                 return ResponseEntity.status(HttpStatus.CONFLICT)
                         .body(ApiResponse.error(e.getMessage()));
             }
@@ -114,6 +116,13 @@ public class InviteController {
                 return ResponseEntity.ok(ApiResponse.success(authResponse));
             }
 
+            if ("CONTROLLER_PROFILE".equals(resolved.getPurpose())) {
+                CompleteControllerInviteRequest controllerRequest = mapToControllerRequest(body);
+                validateControllerRequest(controllerRequest);
+                Auth authResponse = inviteTokenService.completeControllerProfile(code, controllerRequest);
+                return ResponseEntity.ok(ApiResponse.success(authResponse));
+            }
+
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(ApiResponse.error(ErrorMessages.INVITE_LINK_INVALID));
         } catch (InviteTokenService.InviteTokenExpiredException e) {
@@ -127,7 +136,8 @@ public class InviteController {
                     .body(ApiResponse.error(e.getMessage()));
         } catch (IllegalArgumentException e) {
             if (ErrorMessages.PLAYER_INVITE_ALREADY_SUBMITTED.equals(e.getMessage())
-                    || ErrorMessages.USER_INVITE_ALREADY_SUBMITTED.equals(e.getMessage())) {
+                    || ErrorMessages.USER_INVITE_ALREADY_SUBMITTED.equals(e.getMessage())
+                    || ErrorMessages.CONTROLLER_INVITE_ALREADY_SUBMITTED.equals(e.getMessage())) {
                 return ResponseEntity.status(HttpStatus.CONFLICT)
                         .body(ApiResponse.error(e.getMessage()));
             }
@@ -170,6 +180,24 @@ public class InviteController {
         }
     }
 
+    private void validateControllerRequest(CompleteControllerInviteRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("Request body is required");
+        }
+        if (request.getFirstName() == null || request.getFirstName().trim().isEmpty()) {
+            throw new IllegalArgumentException("First name is required");
+        }
+        if (request.getLastName() == null || request.getLastName().trim().isEmpty()) {
+            throw new IllegalArgumentException("Last name is required");
+        }
+        if (request.getPassword() == null || request.getPassword().isBlank()) {
+            throw new IllegalArgumentException("Password is required");
+        }
+        if (request.getConfirmPassword() == null || request.getConfirmPassword().isBlank()) {
+            throw new IllegalArgumentException("Confirm password is required");
+        }
+    }
+
     private CreatePlayerRequest mapToPlayerRequest(Object body) {
         if (body instanceof CreatePlayerRequest request) {
             return request;
@@ -182,6 +210,13 @@ public class InviteController {
             return request;
         }
         return objectMapper.convertValue(body, CreateUserRequest.class);
+    }
+
+    private CompleteControllerInviteRequest mapToControllerRequest(Object body) {
+        if (body instanceof CompleteControllerInviteRequest request) {
+            return request;
+        }
+        return objectMapper.convertValue(body, CompleteControllerInviteRequest.class);
     }
 
     private String resolveClientIp(HttpServletRequest request) {
