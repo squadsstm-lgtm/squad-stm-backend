@@ -8,6 +8,9 @@ import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
+import java.util.LinkedHashSet;
+import java.util.Set;
+
 @Data
 @Document(collection = "auths")
 public class Auth {
@@ -44,6 +47,11 @@ public class Auth {
     private Boolean isBlocked;
     /** Soft off for Controllers (and optional elsewhere). Distinct from isBlocked. */
     private Boolean isInactive;
+    /**
+     * Page keys whose first-visit walkthrough was finished or skipped.
+     * One set on the account, shared by every browser. Stored as an array; treated as a set.
+     */
+    private Set<String> seenWalkthroughPages = new LinkedHashSet<>();
     
     @Version
     @Field("__v")

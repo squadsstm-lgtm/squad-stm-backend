@@ -5,6 +5,7 @@ import com.squad.backend.dto.request.auth.ForgotMpinRequest;
 import com.squad.backend.dto.request.auth.ForgotPasswordRequest;
 import com.squad.backend.dto.request.auth.GoogleLoginRequest;
 import com.squad.backend.dto.request.auth.LoginRequest;
+import com.squad.backend.dto.request.auth.MarkWalkthroughSeenRequest;
 import com.squad.backend.dto.request.auth.ResendVerificationRequest;
 import com.squad.backend.dto.request.auth.ResetMpinRequest;
 import com.squad.backend.dto.request.auth.ResetMpinWithTokenRequest;
@@ -29,6 +30,7 @@ import com.squad.backend.dto.response.auth.VerifyTokenResponse;
 import com.squad.backend.model.Auth;
 import com.squad.backend.security.JwtTokenProvider;
 import com.squad.backend.service.AuthService;
+import com.squad.backend.service.WalkthroughService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,6 +44,7 @@ import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -51,6 +54,7 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService authService;
+    private final WalkthroughService walkthroughService;
     private final JwtTokenProvider jwtTokenProvider;
 
     @Value("${app.frontend-url}")
@@ -360,6 +364,29 @@ public class AuthController {
                     .body(ApiResponse.error(e.getMessage()));
         } catch (Exception e) {
             log.error("Reset password error: ", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error(ErrorMessages.AN_ERROR_OCCURRED));
+        }
+    }
+
+    @PutMapping("/walkthrough/seen")
+    public ResponseEntity<ApiResponse<List<String>>> markWalkthroughSeen(
+            @Valid @RequestBody MarkWalkthroughSeenRequest request,
+            @AuthenticationPrincipal Auth auth) {
+        try {
+            if (auth == null || auth.getId() == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(ApiResponse.error(ErrorMessages.TOKEN_INVALID));
+            }
+            List<String> seen = walkthroughService.markSeen(auth.getId(), request.getPage());
+            return ResponseEntity.ok(ApiResponse.success(seen, "Walkthrough updated"));
+        } catch (IllegalArgumentException e) {
+            HttpStatus status = (ErrorMessages.USER_BLOCKED.equals(e.getMessage()) || ErrorMessages.USER_INACTIVE.equals(e.getMessage()))
+                    ? HttpStatus.FORBIDDEN
+                    : HttpStatus.BAD_REQUEST;
+            return ResponseEntity.status(status).body(ApiResponse.error(e.getMessage()));
+        } catch (Exception e) {
+            log.error("Mark walkthrough seen error: ", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiResponse.error(ErrorMessages.AN_ERROR_OCCURRED));
         }

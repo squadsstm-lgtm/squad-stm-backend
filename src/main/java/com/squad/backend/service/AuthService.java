@@ -41,10 +41,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -438,6 +440,7 @@ public class AuthService {
                 .lastName(auth.getLastName())
                 .role(auth.getRole() != null ? auth.getRole() : "")
                 .controllerPermissions(controllerPermissions)
+                .seenWalkthroughPages(seenWalkthroughPages(auth))
                 .build();
     }
 
@@ -867,6 +870,7 @@ public class AuthService {
                     .firstName(auth.getFirstName())
                     .lastName(auth.getLastName())
                     .role(auth.getRole() != null ? auth.getRole() : "")
+                    .seenWalkthroughPages(seenWalkthroughPages(auth))
                     .build();
         } catch (com.google.firebase.auth.FirebaseAuthException e) {
             log.error("Firebase token verification failed: ", e);
@@ -926,7 +930,16 @@ public class AuthService {
                 .isBlocked(auth.getIsBlocked())
                 .userName(auth.getUserName())
                 .phone(auth.getPhone())
+                .seenWalkthroughPages(seenWalkthroughPages(auth))
                 .build();
+    }
+
+    private static List<String> seenWalkthroughPages(Auth auth) {
+        Set<String> pages = auth.getSeenWalkthroughPages();
+        if (pages == null || pages.isEmpty()) {
+            return List.of();
+        }
+        return Collections.unmodifiableList(new ArrayList<>(pages));
     }
 
     private void mapToModel(SignupRequest request, Auth auth) {

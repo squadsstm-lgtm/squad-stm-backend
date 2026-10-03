@@ -7,6 +7,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 @Data
 @Builder
 @NoArgsConstructor
@@ -32,4 +34,6 @@ public class AuthUserInfoResponse {
     private Object seasonDetails;
     /** Present only for Controller role. */
     private ControllerPermissionsResponse controllerPermissions;
+    /** Pages whose first-visit walkthrough is already done. */
+    private List<String> seenWalkthroughPages;
 }
