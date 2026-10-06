@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
 import java.util.List;
 
 @Data
@@ -25,6 +26,7 @@ public class MasterClubDetailResponse {
     private Integer teamCount;
     private Integer sessionCount;
     private Integer newSessionsThisMonth;
+    private Double platformCollected;
     private Double outstandingAmount;
     private Integer outstandingCount;
     private ClubWalletResponse wallet;
@@ -32,4 +34,10 @@ public class MasterClubDetailResponse {
     private List<String> healthFlags;
     private List<MasterClubRecentItemResponse> recentPayments;
     private List<MasterClubRecentItemResponse> recentWithdrawals;
+    private Double platformFee;
+    private Boolean platformFeeSaved;
+    private Boolean platformFeeFollowsDefault;
+    private Instant platformFeeUpdatedAt;
+    private String platformFeeUpdatedByName;
+    private Double defaultPlatformFee;
 }

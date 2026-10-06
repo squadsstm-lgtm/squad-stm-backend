@@ -20,6 +20,9 @@ public class PaymentInvoiceResponse {
     private String playerEmail;
     private String status;
     private Double totalAmount;
+    private Double sessionTotal;
+    private Double platformFeePerSession;
+    private Double platformFeeTotal;
     private String currency;
     private List<LineItemResponse> lineItems;
     private boolean alreadyPaid;

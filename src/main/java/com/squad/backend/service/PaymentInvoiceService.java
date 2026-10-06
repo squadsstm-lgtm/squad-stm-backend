@@ -7,14 +7,18 @@ import com.squad.backend.dto.request.payment.CreateOutstandingInvoiceRequest;
 import com.squad.backend.dto.response.payment.CreateOutstandingInvoiceResponse;
 import com.squad.backend.dto.response.payment.PaymentInvoiceResponse;
 import com.squad.backend.model.Auth;
+import com.squad.backend.model.Club;
 import com.squad.backend.model.ConfirmationRequest;
 import com.squad.backend.model.PaymentInvoice;
 import com.squad.backend.model.Player;
 import com.squad.backend.model.Session;
+import com.squad.backend.model.Transaction;
+import com.squad.backend.repository.ClubRepository;
 import com.squad.backend.repository.ConfirmationRequestRepository;
 import com.squad.backend.repository.PaymentInvoiceRepository;
 import com.squad.backend.repository.PlayerRepository;
 import com.squad.backend.repository.SessionRepository;
+import com.squad.backend.repository.TransactionRepository;
 import com.squad.backend.security.JwtTokenProvider;
 import com.squad.backend.security.TenantScope;
 import com.squad.backend.utils.AmountParseUtils;
@@ -42,9 +46,11 @@ import java.util.stream.Collectors;
 public class PaymentInvoiceService {
 
     private final PaymentInvoiceRepository paymentInvoiceRepository;
+    private final ClubRepository clubRepository;
     private final ConfirmationRequestRepository confirmationRequestRepository;
     private final PlayerRepository playerRepository;
     private final SessionRepository sessionRepository;
+    private final TransactionRepository transactionRepository;
     private final JwtTokenProvider jwtTokenProvider;
     private final EmailService emailService;
 
@@ -98,7 +104,10 @@ public class PaymentInvoiceService {
         if (rawTotal <= 0) {
             throw new IllegalArgumentException("Outstanding total must be greater than zero");
         }
-        final double total = roundMoney(rawTotal);
+        final double sessionTotal = roundMoney(rawTotal);
+        final double feeEach = requireSavedPlatformFee(auth.getClubId());
+        final double feeTotal = roundMoney(feeEach * lineItems.size());
+        final double playerTotal = roundMoney(sessionTotal + feeTotal);
 
         List<PaymentInvoice> openInvoices = paymentInvoiceRepository
                 .findByPlayerIdAndClubIdAndStatus(player.getId(), auth.getClubId(), "PENDING")
@@ -109,7 +118,7 @@ public class PaymentInvoiceService {
                 .collect(Collectors.toList());
 
         PaymentInvoice reusable = openInvoices.stream()
-                .filter(inv -> sameOutstandingLines(inv, lineItems, total))
+                .filter(inv -> sameOutstandingLines(inv, lineItems, playerTotal, feeEach))
                 .findFirst()
                 .orElse(null);
 
@@ -131,7 +140,10 @@ public class PaymentInvoiceService {
             invoice.setSeasonId(auth.getSeasonId());
             invoice.setPlayerId(player.getId());
             invoice.setStatus("PENDING");
-            invoice.setTotalAmount(total);
+            invoice.setSessionTotal(sessionTotal);
+            invoice.setPlatformFeePerSession(feeEach);
+            invoice.setPlatformFeeTotal(feeTotal);
+            invoice.setTotalAmount(playerTotal);
             invoice.setCurrency("GBP");
             invoice.setLineItems(lineItems);
             invoice.setCreatedBy(auth.getId());
@@ -182,7 +194,10 @@ public class PaymentInvoiceService {
         templateData.put("buttonColor", "#28a745");
         templateData.put("buttonText", "View Invoice & Pay");
         templateData.put("buttonLink", paymentUrl);
-        templateData.put("additionalInfo", "Paying this invoice settles the listed outstanding sessions only.");
+        templateData.put("additionalInfo", feeTotal > 0
+                ? "This total includes a Squad fee of £" + String.format("%.2f", feeTotal)
+                        + ". Paying this invoice settles the listed outstanding sessions."
+                : "Paying this invoice settles the listed outstanding sessions only.");
         templateData.put("footerMessage", "If you believe this was sent in error, contact your club administrator.");
 
         boolean mailSent = emailService.sendEmail(
@@ -214,10 +229,7 @@ public class PaymentInvoiceService {
         List<PaymentInvoice.LineItem> lineItems = new ArrayList<>();
         for (ConfirmationRequest cr : pending) {
             Session session = sessionRepository.findById(cr.getSessionId()).orElse(null);
-            double amount = AmountParseUtils.parseToDoubleSafe(cr.getAmount());
-            if (amount <= 0 && session != null) {
-                amount = AmountParseUtils.parseToDoubleSafe(session.getPrice());
-            }
+            double amount = sessionAmount(cr);
             PaymentInvoice.LineItem item = new PaymentInvoice.LineItem();
             item.setRequestId(cr.getId());
             item.setSessionId(cr.getSessionId());
@@ -236,8 +248,13 @@ public class PaymentInvoiceService {
     private boolean sameOutstandingLines(
             PaymentInvoice existing,
             List<PaymentInvoice.LineItem> desiredLines,
-            double desiredTotal) {
+            double desiredTotal,
+            double feeEach) {
         if (existing.getLineItems() == null || existing.getLineItems().isEmpty()) {
+            return false;
+        }
+        if (existing.getPlatformFeePerSession() == null
+                || Math.abs(roundMoney(existing.getPlatformFeePerSession()) - feeEach) > 0.009) {
             return false;
         }
         if (Math.abs(roundMoney(existing.getTotalAmount() != null ? existing.getTotalAmount() : 0.0) - desiredTotal) > 0.009) {
@@ -270,7 +287,58 @@ public class PaymentInvoiceService {
 
     public PaymentInvoiceResponse getInvoiceForPayment(String invoiceId, String token) {
         PaymentInvoice invoice = validateInvoiceAccess(invoiceId, token);
+        requireFrozenFee(invoice);
         return toResponse(invoice);
+    }
+
+    /**
+     * The fee saved on the club. £0.00 is a real fee and means no Squad charge.
+     * An empty fee is refused so a bill cannot guess the default.
+     */
+    public double requireSavedPlatformFee(String clubId) {
+        Club club = clubRepository.findById(clubId)
+                .orElseThrow(() -> new IllegalArgumentException("Club not found"));
+        if (club.getPlatformFee() == null) {
+            throw new IllegalArgumentException(
+                    "This club has no platform fee saved. Set it in the master panel before taking payment.");
+        }
+        return roundMoney(club.getPlatformFee());
+    }
+
+    public double sessionAmount(ConfirmationRequest cr) {
+        double amount = AmountParseUtils.parseToDoubleSafe(cr.getAmount());
+        if (amount <= 0 && cr.getSessionId() != null) {
+            Session session = sessionRepository.findById(cr.getSessionId()).orElse(null);
+            if (session != null) {
+                amount = AmountParseUtils.parseToDoubleSafe(session.getPrice());
+            }
+        }
+        return roundMoney(amount);
+    }
+
+    private double paidSingleSessionFee(ConfirmationRequest cr) {
+        return transactionRepository.findBySessionIdAndPlayerIdAndStatus(
+                        cr.getSessionId(), cr.getPlayerId(), "completed")
+                .filter(tx -> tx.getNotes() == null || !tx.getNotes().startsWith("Invoice:"))
+                .map(tx -> tx.getPlatformFee() == null ? 0.0 : roundMoney(tx.getPlatformFee()))
+                .orElse(0.0);
+    }
+
+    public double sessionPrice(String sessionId) {
+        Session session = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("Session not found"));
+        return roundMoney(AmountParseUtils.parseToDoubleSafe(session.getPrice()));
+    }
+
+    /** Unpaid invoices created before the fee was stored cannot be paid. */
+    public void requireFrozenFee(PaymentInvoice invoice) {
+        if (invoice == null || "PAID".equalsIgnoreCase(invoice.getStatus())) {
+            return;
+        }
+        if (invoice.getPlatformFeePerSession() == null || invoice.getSessionTotal() == null) {
+            throw new IllegalArgumentException(
+                    "This payment link is out of date. Ask your club to send a new one.");
+        }
     }
 
     /** Build a one-line invoice view from a single confirmation request (legacy payment links). */
@@ -291,10 +359,11 @@ public class PaymentInvoiceService {
 
         Session session = sessionRepository.findById(cr.getSessionId()).orElse(null);
         Player player = playerRepository.findById(cr.getPlayerId()).orElse(null);
-        double amount = AmountParseUtils.parseToDoubleSafe(cr.getAmount());
-        if (amount <= 0 && session != null) {
-            amount = AmountParseUtils.parseToDoubleSafe(session.getPrice());
-        }
+        double amount = sessionAmount(cr);
+        double feeEach = "Yes".equalsIgnoreCase(cr.getPayment())
+                ? paidSingleSessionFee(cr)
+                : requireSavedPlatformFee(cr.getClubId());
+        double playerTotal = roundMoney(amount + feeEach);
 
         PaymentInvoiceResponse.LineItemResponse line = PaymentInvoiceResponse.LineItemResponse.builder()
                 .requestId(cr.getId())
@@ -315,7 +384,10 @@ public class PaymentInvoiceService {
                 .playerName(playerName)
                 .playerEmail(player != null ? player.getEmail() : null)
                 .status("Yes".equalsIgnoreCase(cr.getPayment()) ? "PAID" : "PENDING")
-                .totalAmount(roundMoney(amount))
+                .sessionTotal(amount)
+                .platformFeePerSession(feeEach)
+                .platformFeeTotal(feeEach)
+                .totalAmount(playerTotal)
                 .currency("GBP")
                 .lineItems(List.of(line))
                 .alreadyPaid("Yes".equalsIgnoreCase(cr.getPayment()))
@@ -363,6 +435,9 @@ public class PaymentInvoiceService {
                 .playerName(playerName)
                 .playerEmail(player != null ? player.getEmail() : null)
                 .status(invoice.getStatus())
+                .sessionTotal(invoice.getSessionTotal() != null ? invoice.getSessionTotal() : invoice.getTotalAmount())
+                .platformFeePerSession(invoice.getPlatformFeePerSession())
+                .platformFeeTotal(invoice.getPlatformFeeTotal() != null ? invoice.getPlatformFeeTotal() : 0.0)
                 .totalAmount(invoice.getTotalAmount())
                 .currency(invoice.getCurrency() != null ? invoice.getCurrency() : "GBP")
                 .lineItems(lines)
@@ -370,7 +445,7 @@ public class PaymentInvoiceService {
                 .build();
     }
 
-    private static double roundMoney(double value) {
+    public static double roundMoney(double value) {
         return Math.round(value * 100.0) / 100.0;
     }
 }

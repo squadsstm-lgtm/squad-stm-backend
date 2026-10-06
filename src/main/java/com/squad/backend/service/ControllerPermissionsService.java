@@ -291,8 +291,9 @@ public class ControllerPermissionsService {
         pending.setEmail(email);
         pending.setFirstName(trimOrEmpty(request.getFirstName()));
         pending.setLastName(trimOrEmpty(request.getLastName()));
-        pending.setPhone(request.getPhone() != null && !request.getPhone().isBlank()
-                ? request.getPhone().trim() : null);
+        if (request.getPhone() != null && !request.getPhone().isBlank()) {
+            pending.setPhone(request.getPhone().trim());
+        }
         pending.setPassword(null);
         pending.setClubId(null);
         pending.setSeasonId(null);

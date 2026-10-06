@@ -28,7 +28,8 @@ public class Auth {
     @Indexed(unique = true)
     private String email;
     
-    @Indexed(unique = true)
+    /** Unique only when a number is present. Email invites can omit the phone. */
+    @Indexed(unique = true, partialFilter = "{ 'phone': { '$gt': '' } }")
     private String phone;
 
     @JsonIgnore

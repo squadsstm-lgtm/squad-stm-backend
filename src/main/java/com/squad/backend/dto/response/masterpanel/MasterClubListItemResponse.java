@@ -19,6 +19,7 @@ public class MasterClubListItemResponse {
     private Integer teamCount;
     private Integer sessionCount;
     private Double totalEarnings;
+    private Double platformCollected;
     private Double outstandingAmount;
     private Double availableForWithdrawal;
     private Double pendingWithdrawals;

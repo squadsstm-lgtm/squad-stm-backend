@@ -5,11 +5,14 @@ import com.squad.backend.dto.request.clubwallet.UpdateWithdrawalRequest;
 import com.squad.backend.dto.request.masterpanel.CreateControllerRequest;
 import com.squad.backend.dto.request.masterpanel.InviteControllerRequest;
 import com.squad.backend.dto.request.masterpanel.UpdateControllerDetailsRequest;
+import com.squad.backend.dto.request.masterpanel.UpdateClubPlatformFeeRequest;
 import com.squad.backend.dto.request.masterpanel.UpdateControllerPermissionsRequest;
+import com.squad.backend.dto.request.masterpanel.UpdateDefaultPlatformFeeRequest;
 import com.squad.backend.dto.response.ApiResponse;
 import com.squad.backend.dto.response.PageMetaResponse;
 import com.squad.backend.dto.response.clubwallet.PagedWithdrawalsResponse;
 import com.squad.backend.dto.response.clubwallet.WithdrawalRequestResponse;
+import com.squad.backend.dto.response.masterpanel.ClubPlatformFeeResponse;
 import com.squad.backend.dto.response.masterpanel.ControllerInviteResponse;
 import com.squad.backend.dto.response.masterpanel.ControllerListItemResponse;
 import com.squad.backend.dto.response.masterpanel.ControllerPermissionsResponse;
@@ -17,10 +20,12 @@ import com.squad.backend.dto.response.masterpanel.MasterClubDetailResponse;
 import com.squad.backend.dto.response.masterpanel.MasterClubListItemResponse;
 import com.squad.backend.dto.response.masterpanel.MasterClubsListResponse;
 import com.squad.backend.dto.response.masterpanel.MasterClubsPlatformSummaryResponse;
+import com.squad.backend.dto.response.masterpanel.PlatformSettingsResponse;
 import com.squad.backend.model.Auth;
 import com.squad.backend.service.ClubWalletService;
 import com.squad.backend.service.ControllerPermissionsService;
 import com.squad.backend.service.MasterPanelClubsService;
+import com.squad.backend.service.PlatformSettingsService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +46,7 @@ public class MasterPanelController {
     private final ClubWalletService clubWalletService;
     private final MasterPanelClubsService masterPanelClubsService;
     private final ControllerPermissionsService controllerPermissionsService;
+    private final PlatformSettingsService platformSettingsService;
 
     @GetMapping("/me/permissions")
     public ResponseEntity<ApiResponse<ControllerPermissionsResponse>> getMyPermissions(
@@ -260,6 +266,88 @@ public class MasterPanelController {
         }
     }
 
+    @GetMapping("/platform-settings")
+    public ResponseEntity<ApiResponse<PlatformSettingsResponse>> getPlatformSettings(
+            @AuthenticationPrincipal Auth auth) {
+        try {
+            requireClubMoney(auth);
+            return ResponseEntity.ok(ApiResponse.success(platformSettingsService.getSettings()));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error(e.getMessage()));
+        } catch (Exception e) {
+            log.error("Master panel get platform settings error: ", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error(ErrorMessages.AN_ERROR_OCCURRED));
+        }
+    }
+
+    @PutMapping("/platform-settings")
+    public ResponseEntity<ApiResponse<PlatformSettingsResponse>> updatePlatformSettings(
+            @Valid @RequestBody UpdateDefaultPlatformFeeRequest request,
+            @AuthenticationPrincipal Auth auth) {
+        try {
+            requireClubMoney(auth);
+            PlatformSettingsResponse data =
+                    platformSettingsService.updateDefault(request.getDefaultPlatformFee(), auth.getId());
+            return ResponseEntity.ok(ApiResponse.success(data, "Default platform fee updated."));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error(e.getMessage()));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
+        } catch (Exception e) {
+            log.error("Master panel update platform settings error: ", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error(ErrorMessages.AN_ERROR_OCCURRED));
+        }
+    }
+
+    @PutMapping("/clubs/{clubId}/platform-fee")
+    public ResponseEntity<ApiResponse<ClubPlatformFeeResponse>> updateClubPlatformFee(
+            @PathVariable String clubId,
+            @Valid @RequestBody UpdateClubPlatformFeeRequest request,
+            @AuthenticationPrincipal Auth auth) {
+        try {
+            requireClubMoney(auth);
+            ClubPlatformFeeResponse data = masterPanelClubsService.updateClubPlatformFee(
+                    clubId, request.getPlatformFee(), auth.getId());
+            return ResponseEntity.ok(ApiResponse.success(data, "Club platform fee updated."));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error(e.getMessage()));
+        } catch (IllegalArgumentException e) {
+            HttpStatus status = "Club not found".equals(e.getMessage())
+                    ? HttpStatus.NOT_FOUND
+                    : HttpStatus.BAD_REQUEST;
+            return ResponseEntity.status(status).body(ApiResponse.error(e.getMessage()));
+        } catch (Exception e) {
+            log.error("Master panel update club platform fee error: ", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error(ErrorMessages.AN_ERROR_OCCURRED));
+        }
+    }
+
+    @PostMapping("/clubs/{clubId}/platform-fee/sync-default")
+    public ResponseEntity<ApiResponse<ClubPlatformFeeResponse>> syncClubPlatformFee(
+            @PathVariable String clubId,
+            @AuthenticationPrincipal Auth auth) {
+        try {
+            requireClubMoney(auth);
+            ClubPlatformFeeResponse data =
+                    masterPanelClubsService.syncClubPlatformFeeToDefault(clubId, auth.getId());
+            return ResponseEntity.ok(ApiResponse.success(data, "Club platform fee set to the default."));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error(e.getMessage()));
+        } catch (IllegalArgumentException e) {
+            HttpStatus status = "Club not found".equals(e.getMessage())
+                    ? HttpStatus.NOT_FOUND
+                    : HttpStatus.BAD_REQUEST;
+            return ResponseEntity.status(status).body(ApiResponse.error(e.getMessage()));
+        } catch (Exception e) {
+            log.error("Master panel sync club platform fee error: ", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error(ErrorMessages.AN_ERROR_OCCURRED));
+        }
+    }
+
     @GetMapping("/clubs/{clubId}")
     public ResponseEntity<ApiResponse<MasterClubDetailResponse>> getClubDetail(
             @PathVariable String clubId,
@@ -359,6 +447,7 @@ public class MasterPanelController {
 
     private void redactSummaryMoney(MasterClubsPlatformSummaryResponse data) {
         data.setTotalEarnings(0);
+        data.setPlatformCollected(0);
         data.setTotalOutstanding(0);
         data.setTotalAvailableForWithdrawal(0);
         data.setTotalPendingWithdrawals(0);
@@ -370,6 +459,7 @@ public class MasterPanelController {
         }
         for (MasterClubListItemResponse club : data.getClubs()) {
             club.setTotalEarnings(0.0);
+            club.setPlatformCollected(0.0);
             club.setOutstandingAmount(0.0);
             club.setAvailableForWithdrawal(0.0);
             club.setPendingWithdrawals(0.0);
@@ -377,10 +467,22 @@ public class MasterPanelController {
     }
 
     private void redactClubDetailMoney(MasterClubDetailResponse data) {
+        data.setPlatformCollected(0.0);
         data.setOutstandingAmount(0.0);
         data.setOutstandingCount(0);
         data.setWallet(null);
         data.setRecentPayments(null);
         data.setRecentWithdrawals(null);
+        data.setPlatformFee(null);
+        data.setPlatformFeeSaved(null);
+        data.setPlatformFeeFollowsDefault(null);
+        data.setPlatformFeeUpdatedAt(null);
+        data.setPlatformFeeUpdatedByName(null);
+        data.setDefaultPlatformFee(null);
+    }
+
+    private void requireClubMoney(Auth auth) {
+        controllerPermissionsService.requirePermission(auth, ControllerPermissionsResponse::getViewClubs);
+        controllerPermissionsService.requirePermission(auth, ControllerPermissionsResponse::getViewClubMoney);
     }
 }
