@@ -15,4 +15,6 @@ public interface ClubRepository extends MongoRepository<Club, String> {
     Optional<Club> findByClubNameIgnoreCase(String clubName);
     
     List<Club> findBySeasonId(String seasonId);
+
+    List<Club> findByPlatformFeeFollowsDefaultTrue();
 }

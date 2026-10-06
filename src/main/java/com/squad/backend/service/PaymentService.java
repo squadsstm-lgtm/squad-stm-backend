@@ -1,9 +1,11 @@
 package com.squad.backend.service;
 
 import com.squad.backend.dto.request.ConfirmPaymentRequest;
+import com.squad.backend.dto.request.CreateCheckoutSessionRequest;
 import com.squad.backend.dto.request.CreatePaymentIntentRequest;
 import com.squad.backend.dto.request.payment.ConfirmInvoicePaymentRequest;
 import com.squad.backend.dto.request.payment.InvoicePaymentIntentRequest;
+import com.squad.backend.dto.response.CheckoutSessionResponse;
 import com.squad.backend.dto.response.PaymentIntentResponse;
 import com.squad.backend.model.ClubWallet;
 import com.squad.backend.model.ConfirmationRequest;
@@ -47,7 +49,7 @@ public class PaymentService {
     private String frontendUrl;
 
     public PaymentIntentResponse createPaymentIntent(CreatePaymentIntentRequest request) throws StripeException {
-        validateEmailLinkPaymentAccess(
+        ConfirmationRequest linkedRequest = validateEmailLinkPaymentAccess(
                 request.getRequestId(),
                 request.getToken(),
                 request.getClubId(),
@@ -91,7 +93,13 @@ public class PaymentService {
             metadata.put("billingPostcode", request.getBillingAddress().getOrDefault("postcode", ""));
         }
 
-        Long amountInCents = Math.round(request.getAmount() * 100);
+        double sessionAmount = paymentInvoiceService.sessionAmount(linkedRequest);
+        double platformFee = paymentInvoiceService.requireSavedPlatformFee(request.getClubId());
+        double playerTotal = PaymentInvoiceService.roundMoney(sessionAmount + platformFee);
+        metadata.put("sessionAmount", Double.toString(sessionAmount));
+        metadata.put("platformFee", Double.toString(platformFee));
+
+        Long amountInCents = Math.round(playerTotal * 100);
         PaymentIntent paymentIntent = stripeService.createPaymentIntent(
                 amountInCents,
                 request.getCurrency(),
@@ -176,13 +184,32 @@ public class PaymentService {
             log.warn("Could not set default payment method: {}", e.getMessage());
         }
 
+        String sessionMeta = paymentIntent.getMetadata() != null
+                ? paymentIntent.getMetadata().get("sessionAmount") : null;
+        String feeMeta = paymentIntent.getMetadata() != null
+                ? paymentIntent.getMetadata().get("platformFee") : null;
+        if (sessionMeta == null || feeMeta == null) {
+            throw new IllegalArgumentException("This payment link is out of date. Ask your club to send a new one.");
+        }
+        double sessionAmount = PaymentInvoiceService.roundMoney(Double.parseDouble(sessionMeta));
+        double platformFee = PaymentInvoiceService.roundMoney(Double.parseDouble(feeMeta));
+        double playerTotal = PaymentInvoiceService.roundMoney(sessionAmount + platformFee);
+        long expectedCents = Math.round(playerTotal * 100);
+        Long paidCents = paymentIntent.getAmountReceived() != null && paymentIntent.getAmountReceived() > 0
+                ? paymentIntent.getAmountReceived()
+                : paymentIntent.getAmount();
+        if (paidCents == null || Math.abs(paidCents - expectedCents) > 1) {
+            throw new IllegalArgumentException("Paid amount does not match the session plus the Squad fee");
+        }
+
         com.squad.backend.model.Transaction transaction = new com.squad.backend.model.Transaction();
         transaction.setClubId(request.getClubId());
         transaction.setSeasonId(request.getSeasonId());
         transaction.setPlayerId(request.getPlayerId());
         transaction.setSessionId(request.getSessionId());
         transaction.setTeamId(request.getTeamId());
-        transaction.setAmount(request.getAmount());
+        transaction.setAmount(sessionAmount);
+        transaction.setPlatformFee(platformFee);
         transaction.setCurrency(request.getCurrency());
         transaction.setType("payment");
         transaction.setStatus("completed");
@@ -199,7 +226,8 @@ public class PaymentService {
         transaction.setStripeCustomerId(stripeCustomer.getId());
         transaction.setStripeCustomerStripeId(stripeCustomer.getStripeCustomerId());
         transaction.setProcessingFee(0.0);
-        transaction.setDescription("Session payment - " + request.getAmount() + " " + request.getCurrency());
+        transaction.setDescription("Session payment - " + sessionAmount + " " + request.getCurrency()
+                + " (Squad fee " + platformFee + ")");
         transaction.setNotes("Stripe Payment Intent: " + request.getPaymentIntentId());
         if (request.getBillingAddress() != null) {
             com.squad.backend.model.Transaction.BillingAddress billingAddress = 
@@ -214,9 +242,9 @@ public class PaymentService {
 
         transaction = transactionRepository.save(transaction);
 
-        clubWalletService.addEarnings(request.getClubId(), request.getAmount());
+        clubWalletService.addEarnings(request.getClubId(), sessionAmount);
 
-        stripeCustomer.updatePaymentStats(request.getAmount());
+        stripeCustomer.updatePaymentStats(playerTotal);
         stripeCustomerRepository.save(stripeCustomer);
 
         linkedRequest.setPayment("Yes");
@@ -235,8 +263,45 @@ public class PaymentService {
         return result;
     }
 
+    public CheckoutSessionResponse createCheckoutSession(CreateCheckoutSessionRequest request) throws StripeException {
+        if (request.getAmount() == null || request.getClubId() == null ||
+                request.getPlayerId() == null || request.getSessionId() == null ||
+                request.getSessionDate() == null) {
+            throw new IllegalArgumentException("Missing required fields");
+        }
+        double sessionAmount = paymentInvoiceService.sessionPrice(request.getSessionId());
+        double platformFee = paymentInvoiceService.requireSavedPlatformFee(request.getClubId());
+        double playerTotal = PaymentInvoiceService.roundMoney(sessionAmount + platformFee);
+
+        String successUrl = request.getSuccessUrl() != null ? request.getSuccessUrl() :
+                frontendUrl + "/payment-success?session_id={CHECKOUT_SESSION_ID}";
+        String cancelUrl = request.getCancelUrl() != null ? request.getCancelUrl() :
+                frontendUrl + "/payment-cancelled";
+
+        Map<String, String> metadata = new HashMap<>();
+        metadata.put("clubId", request.getClubId());
+        metadata.put("playerId", request.getPlayerId());
+        metadata.put("sessionId", request.getSessionId());
+        metadata.put("sessionDate", request.getSessionDate());
+        metadata.put("sessionAmount", Double.toString(sessionAmount));
+        metadata.put("platformFee", Double.toString(platformFee));
+
+        com.stripe.model.checkout.Session session = stripeService.createCheckoutSession(
+                Math.round(playerTotal * 100),
+                request.getCurrency() != null ? request.getCurrency() : "GBP",
+                successUrl,
+                cancelUrl,
+                metadata);
+
+        return CheckoutSessionResponse.builder()
+                .sessionId(session.getId())
+                .checkoutUrl(session.getUrl())
+                .build();
+    }
+
     public PaymentIntentResponse createInvoicePaymentIntent(InvoicePaymentIntentRequest request) throws StripeException {
         PaymentInvoice invoice = paymentInvoiceService.validateInvoiceAccess(request.getInvoiceId(), request.getToken());
+        paymentInvoiceService.requireFrozenFee(invoice);
         if ("PAID".equalsIgnoreCase(invoice.getStatus())) {
             throw new IllegalArgumentException("This invoice has already been paid");
         }
@@ -273,6 +338,7 @@ public class PaymentService {
     @Transactional
     public Map<String, Object> confirmInvoicePayment(ConfirmInvoicePaymentRequest request) throws StripeException {
         PaymentInvoice invoice = paymentInvoiceService.validateInvoiceAccess(request.getInvoiceId(), request.getToken());
+        paymentInvoiceService.requireFrozenFee(invoice);
         if ("PAID".equalsIgnoreCase(invoice.getStatus())) {
             throw new IllegalArgumentException("This invoice has already been paid");
         }
@@ -349,7 +415,14 @@ public class PaymentService {
         transaction.setSessionId(invoice.getLineItems() != null && !invoice.getLineItems().isEmpty()
                 ? invoice.getLineItems().get(0).getSessionId()
                 : null);
-        transaction.setAmount(invoice.getTotalAmount());
+        double sessionCredit = invoice.getSessionTotal();
+        double platformFee = invoice.getPlatformFeeTotal() != null ? invoice.getPlatformFeeTotal() : 0.0;
+        double splitTotal = PaymentInvoiceService.roundMoney(sessionCredit + platformFee);
+        if (Math.abs(splitTotal - invoice.getTotalAmount()) > 0.009) {
+            throw new IllegalArgumentException("Invoice split does not match the total");
+        }
+        transaction.setAmount(sessionCredit);
+        transaction.setPlatformFee(platformFee);
         transaction.setCurrency(request.getCurrency() != null ? request.getCurrency() : "GBP");
         transaction.setType("payment");
         transaction.setStatus("completed");
@@ -376,7 +449,7 @@ public class PaymentService {
         transaction.setCompletedAt(Instant.now());
         transaction = transactionRepository.save(transaction);
 
-        clubWalletService.addEarnings(invoice.getClubId(), invoice.getTotalAmount());
+        clubWalletService.addEarnings(invoice.getClubId(), sessionCredit);
         stripeCustomer.updatePaymentStats(invoice.getTotalAmount());
         stripeCustomerRepository.save(stripeCustomer);
 

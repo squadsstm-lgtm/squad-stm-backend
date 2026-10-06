@@ -29,7 +29,14 @@ public class PaymentInvoice {
     @Indexed
     private String status;
 
+    /** What the player pays: session total plus the frozen Squad fee. */
     private Double totalAmount;
+    /** Session prices only. This is the amount credited to the club. */
+    private Double sessionTotal;
+    /** Squad fee for one session, copied from the club when the invoice was sent. */
+    private Double platformFeePerSession;
+    /** platformFeePerSession times the number of sessions. */
+    private Double platformFeeTotal;
     private String currency = "GBP";
 
     private List<LineItem> lineItems = new ArrayList<>();

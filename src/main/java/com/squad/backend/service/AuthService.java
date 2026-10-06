@@ -40,6 +40,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -63,6 +64,7 @@ public class AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final EmailService emailService;
     private final FirebaseService firebaseService;
+    private final PlatformSettingsService platformSettingsService;
 
     @Autowired
     @Lazy
@@ -98,6 +100,10 @@ public class AuthService {
         Club newClub = new Club();
         newClub.setClubName(request.getClubName());
         newClub.setSeasonId(currentSeason.getId());
+        newClub.setPlatformFee(platformSettingsService.currentDefaultFee());
+        newClub.setPlatformFeeFollowsDefault(true);
+        newClub.setPlatformFeeUpdatedAt(Instant.now());
+        newClub.setPlatformFeeUpdatedBy("system");
         newClub = clubRepository.save(newClub);
         String clubId = newClub.getId();
 

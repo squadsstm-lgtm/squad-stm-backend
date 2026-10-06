@@ -4,6 +4,7 @@ import com.squad.backend.constants.WithdrawalStatus;
 import com.squad.backend.dto.response.CountResponse;
 import com.squad.backend.dto.response.PageMetaResponse;
 import com.squad.backend.dto.response.clubwallet.ClubWalletResponse;
+import com.squad.backend.dto.response.masterpanel.ClubPlatformFeeResponse;
 import com.squad.backend.dto.response.masterpanel.MasterClubAdminContactResponse;
 import com.squad.backend.dto.response.masterpanel.MasterClubDetailResponse;
 import com.squad.backend.dto.response.masterpanel.MasterClubListItemResponse;
@@ -33,6 +34,8 @@ import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -67,6 +70,7 @@ public class MasterPanelClubsService {
     private final SeasonRepository seasonRepository;
     private final CountService countService;
     private final ClubWalletService clubWalletService;
+    private final PlatformSettingsService platformSettingsService;
 
     public MasterClubsPlatformSummaryResponse getPlatformSummary(String seasonId) {
         List<Club> clubs = findClubs(seasonId, null);
@@ -82,6 +86,7 @@ public class MasterPanelClubsService {
                 "sessions", clubIds, seasonId, List.of(Criteria.where("isActive").is(true)));
         Map<String, ClubWallet> wallets = loadWalletsByClubId(clubIds);
         Map<String, Double> outstanding = sumOutstandingByClub(clubIds, seasonId);
+        Map<String, Double> platformCollected = sumPlatformCollectedByClub(clubIds);
         Map<String, Integer> openWithdrawals = countOpenWithdrawalsByClub(clubIds);
 
         long activeClubs = 0;
@@ -90,6 +95,7 @@ public class MasterPanelClubsService {
         long totalTeams = 0;
         long totalSessions = 0;
         double totalEarnings = 0;
+        double totalPlatformCollected = 0;
         double totalOutstanding = 0;
         double totalAvailable = 0;
         double totalPendingWithdrawals = 0;
@@ -116,6 +122,7 @@ public class MasterPanelClubsService {
                 totalPendingWithdrawals += nz(wallet.getPendingWithdrawals());
             }
             totalOutstanding += outstanding.getOrDefault(id, 0.0);
+            totalPlatformCollected += platformCollected.getOrDefault(id, 0.0);
             openWithdrawalCount += openWithdrawals.getOrDefault(id, 0);
         }
 
@@ -127,6 +134,7 @@ public class MasterPanelClubsService {
                 .totalTeams(totalTeams)
                 .totalSessions(totalSessions)
                 .totalEarnings(round2(totalEarnings))
+                .platformCollected(round2(totalPlatformCollected))
                 .totalOutstanding(round2(totalOutstanding))
                 .totalAvailableForWithdrawal(round2(totalAvailable))
                 .totalPendingWithdrawals(round2(totalPendingWithdrawals))
@@ -159,6 +167,7 @@ public class MasterPanelClubsService {
                 "sessions", clubIds, seasonId, List.of(Criteria.where("isActive").is(true)));
         Map<String, ClubWallet> wallets = loadWalletsByClubId(clubIds);
         Map<String, Double> outstanding = sumOutstandingByClub(clubIds, seasonId);
+        Map<String, Double> platformCollected = sumPlatformCollectedByClub(clubIds);
         Map<String, Integer> openWithdrawals = countOpenWithdrawalsByClub(clubIds);
         Map<String, Auth> primaryAdmins = loadPrimaryAdmins(clubIds);
 
@@ -179,6 +188,7 @@ public class MasterPanelClubsService {
                             .teamCount(teamCount)
                             .sessionCount(sessionCount)
                             .totalEarnings(round2(wallet != null ? nz(wallet.getTotalEarnings()) : 0))
+                            .platformCollected(round2(platformCollected.getOrDefault(id, 0.0)))
                             .outstandingAmount(round2(outstanding.getOrDefault(id, 0.0)))
                             .availableForWithdrawal(round2(wallet != null ? nz(wallet.getAvailableForWithdrawal()) : 0))
                             .pendingWithdrawals(round2(wallet != null ? nz(wallet.getPendingWithdrawals()) : 0))
@@ -258,6 +268,7 @@ public class MasterPanelClubsService {
                 .teamCount(teamCount)
                 .sessionCount(sessionCount)
                 .newSessionsThisMonth(counts.getNewSessionsThisMonth())
+                .platformCollected(round2(sumPlatformCollectedByClub(Set.of(clubId)).getOrDefault(clubId, 0.0)))
                 .outstandingAmount(round2(outstanding.amount()))
                 .outstandingCount(outstanding.count())
                 .wallet(wallet)
@@ -265,6 +276,46 @@ public class MasterPanelClubsService {
                 .healthFlags(buildHealthFlags(playerCount, sessionCount, outstanding.amount(), wallet))
                 .recentPayments(recentPayments)
                 .recentWithdrawals(recentWithdrawals)
+                .platformFee(club.getPlatformFee())
+                .platformFeeSaved(club.getPlatformFee() != null)
+                .platformFeeFollowsDefault(Boolean.TRUE.equals(club.getPlatformFeeFollowsDefault()))
+                .platformFeeUpdatedAt(club.getPlatformFeeUpdatedAt())
+                .platformFeeUpdatedByName(club.getPlatformFee() == null
+                        ? null
+                        : platformSettingsService.displayName(club.getPlatformFeeUpdatedBy()))
+                .defaultPlatformFee(platformSettingsService.currentDefaultFee())
+                .build();
+    }
+
+    public ClubPlatformFeeResponse updateClubPlatformFee(String clubId, BigDecimal fee, String updatedBy) {
+        return saveClubPlatformFee(clubId, platformSettingsService.requireFee(fee), false, updatedBy);
+    }
+
+    /**
+     * Puts this club on the current default. Later default changes update this club.
+     */
+    public ClubPlatformFeeResponse syncClubPlatformFeeToDefault(String clubId, String updatedBy) {
+        double amount = platformSettingsService.currentDefaultFee();
+        return saveClubPlatformFee(clubId, amount, true, updatedBy);
+    }
+
+    private ClubPlatformFeeResponse saveClubPlatformFee(
+            String clubId, double amount, boolean followsDefault, String updatedBy) {
+        Club club = clubRepository.findById(clubId)
+                .orElseThrow(() -> new IllegalArgumentException("Club not found"));
+        club.setPlatformFee(amount);
+        club.setPlatformFeeFollowsDefault(followsDefault);
+        club.setPlatformFeeUpdatedAt(Instant.now());
+        club.setPlatformFeeUpdatedBy(updatedBy);
+        clubRepository.save(club);
+        return ClubPlatformFeeResponse.builder()
+                .clubId(club.getId())
+                .platformFee(club.getPlatformFee())
+                .platformFeeSaved(true)
+                .platformFeeFollowsDefault(followsDefault)
+                .platformFeeUpdatedAt(club.getPlatformFeeUpdatedAt())
+                .platformFeeUpdatedByName(platformSettingsService.displayName(updatedBy))
+                .defaultPlatformFee(platformSettingsService.currentDefaultFee())
                 .build();
     }
 
@@ -277,6 +328,7 @@ public class MasterPanelClubsService {
                 .totalTeams(0)
                 .totalSessions(0)
                 .totalEarnings(0)
+                .platformCollected(0)
                 .totalOutstanding(0)
                 .totalAvailableForWithdrawal(0)
                 .totalPendingWithdrawals(0)
@@ -402,6 +454,30 @@ public class MasterPanelClubsService {
                 .mapToDouble(r -> AmountParseUtils.parseToDoubleSafe(r.getAmount()))
                 .sum();
         return new OutstandingTotals(round2(amount), rows.size());
+    }
+
+    private Map<String, Double> sumPlatformCollectedByClub(Set<String> clubIds) {
+        if (clubIds.isEmpty()) {
+            return Map.of();
+        }
+        Aggregation aggregation = Aggregation.newAggregation(
+                Aggregation.match(Criteria.where("clubId").in(clubIds)
+                        .and("type").is("payment")
+                        .and("status").is("completed")),
+                Aggregation.group("clubId").sum("platformFee").as("total")
+        );
+        AggregationResults<Document> results =
+                mongoTemplate.aggregate(aggregation, "transactions", Document.class);
+        Map<String, Double> map = new HashMap<>();
+        for (Document doc : results.getMappedResults()) {
+            String id = doc.getString("_id");
+            Object totalObj = doc.get("total");
+            double total = totalObj instanceof Number n ? n.doubleValue() : 0.0;
+            if (id != null) {
+                map.put(id, total);
+            }
+        }
+        return map;
     }
 
     private Map<String, Integer> countOpenWithdrawalsByClub(Set<String> clubIds) {

@@ -138,38 +138,10 @@ public class PaymentController {
     public ResponseEntity<ApiResponse<CheckoutSessionResponse>> createCheckoutSession(
             @Valid @RequestBody CreateCheckoutSessionRequest request) {
         try {
-            if (request.getAmount() == null || request.getClubId() == null ||
-                request.getPlayerId() == null || request.getSessionId() == null ||
-                request.getSessionDate() == null) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(ApiResponse.error("Missing required fields"));
-            }
-
-            String successUrl = request.getSuccessUrl() != null ? request.getSuccessUrl() :
-                    frontendUrl + "/payment-success?session_id={CHECKOUT_SESSION_ID}";
-            String cancelUrl = request.getCancelUrl() != null ? request.getCancelUrl() :
-                    frontendUrl + "/payment-cancelled";
-
-            Map<String, String> metadata = new HashMap<>();
-            metadata.put("clubId", request.getClubId());
-            metadata.put("playerId", request.getPlayerId());
-            metadata.put("sessionId", request.getSessionId());
-            metadata.put("sessionDate", request.getSessionDate());
-
-            Long amountInCents = Math.round(request.getAmount() * 100);
-            Session session = stripeService.createCheckoutSession(
-                    amountInCents,
-                    request.getCurrency(),
-                    successUrl,
-                    cancelUrl,
-                    metadata);
-
-            CheckoutSessionResponse response = CheckoutSessionResponse.builder()
-                    .sessionId(session.getId())
-                    .checkoutUrl(session.getUrl())
-                    .build();
-
+            CheckoutSessionResponse response = paymentService.createCheckoutSession(request);
             return ResponseEntity.ok(ApiResponse.success(response));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error(e.getMessage()));
         } catch (StripeException e) {
             log.error("Error creating checkout session: ", e);
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
@@ -203,13 +175,22 @@ public class PaymentController {
                     String playerId = metadata.get("playerId");
                     String sessionId = metadata.get("sessionId");
                     String sessionDate = metadata.get("sessionDate");
-                    Double amount = session.getAmountTotal() / 100.0;
+                    double charged = session.getAmountTotal() / 100.0;
+                    String sessionAmountMeta = metadata.get("sessionAmount");
+                    String platformFeeMeta = metadata.get("platformFee");
+                    double clubAmount = sessionAmountMeta != null ? Double.parseDouble(sessionAmountMeta) : charged;
+                    double platformFee = platformFeeMeta != null ? Double.parseDouble(platformFeeMeta) : 0.0;
+                    if (sessionAmountMeta != null
+                            && Math.abs((clubAmount + platformFee) - charged) > 0.02) {
+                        throw new IllegalArgumentException("Checkout split does not match the amount paid");
+                    }
 
                     com.squad.backend.model.Transaction transaction = new com.squad.backend.model.Transaction();
                     transaction.setClubId(clubId);
                     transaction.setPlayerId(playerId);
                     transaction.setSessionId(sessionId);
-                    transaction.setAmount(amount);
+                    transaction.setAmount(clubAmount);
+                    transaction.setPlatformFee(platformFee);
                     transaction.setCurrency(session.getCurrency().toUpperCase());
                     transaction.setType("payment");
                     transaction.setStatus("completed");
@@ -220,14 +201,14 @@ public class PaymentController {
                     transaction.setPaymentMethod("card");
                     transaction.setStripeTransactionId(session.getPaymentIntent());
                     transaction.setProcessingFee(0.0);
-                    transaction.setDescription("Checkout session payment - " + amount + " " + session.getCurrency().toUpperCase());
+                    transaction.setDescription("Checkout session payment - " + clubAmount + " " + session.getCurrency().toUpperCase());
                     transaction.setNotes("Stripe Checkout Session: " + session.getId());
                     transaction.setCreatedAt(java.time.Instant.now());
                     transaction.setUpdatedAt(java.time.Instant.now());
 
                     transactionRepository.save(transaction);
                     clubWalletService.getOrCreateWallet(clubId);
-                    clubWalletService.addEarnings(clubId, amount);
+                    clubWalletService.addEarnings(clubId, clubAmount);
 
                     log.info("Payment completed for session {}, transaction {} created", sessionId, transaction.getId());
                 }

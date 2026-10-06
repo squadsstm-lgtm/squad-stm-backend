@@ -17,6 +17,8 @@ public class MasterClubsPlatformSummaryResponse {
     private long totalTeams;
     private long totalSessions;
     private double totalEarnings;
+    /** Squad fees on card payments. Not included in totalEarnings. */
+    private double platformCollected;
     private double totalOutstanding;
     private double totalAvailableForWithdrawal;
     private double totalPendingWithdrawals;

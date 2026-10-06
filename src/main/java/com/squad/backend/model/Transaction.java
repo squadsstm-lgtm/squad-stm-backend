@@ -33,7 +33,10 @@ public class Transaction {
     @Indexed
     private String teamId;
     
+    /** Club share of this payment. Squad's fee is stored separately and is not part of this amount. */
     private Double amount;
+    /** Squad fee collected on this card payment. Null or 0 on older payments. */
+    private Double platformFee = 0.0;
     private String currency = "GBP";
     @Indexed
     private String type;
