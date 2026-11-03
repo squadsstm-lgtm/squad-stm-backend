@@ -176,12 +176,12 @@ public class AuthService {
             auth.getFirstName()
         ));
         templateData.put("buttonText", "Sign In Now");
-        templateData.put("buttonLink", frontendUrl + "#/auth/login");
+        templateData.put("buttonLink", frontendUrl + "/auth/login");
         templateData.put("buttonColor", "#007bff");
         templateData.put("additionalInfo", "Click the button above to sign in to your account. If you have any questions, feel free to contact our support team.");
         templateData.put("footerMessage", "Welcome aboard! We're excited to have you on the team.");
         
-        String message = String.format("Successfully signUp. You can login with %s#/auth/login by google.", frontendUrl);
+        String message = String.format("Successfully signUp. You can login with %s/auth/login by google.", frontendUrl);
         emailService.sendEmail(auth.getEmail(), "Squad STM - Welcome!", message, templateData);
     }
     
@@ -476,7 +476,7 @@ public class AuthService {
         templateData.put("emailHeading", "Password Reset Request");
         templateData.put("emailMessage", "<strong>" + (user.getFirstName() != null ? user.getFirstName() : "User") + "</strong>,<br><br>We received a request to reset your password. Click the button below to set a new password.");
         templateData.put("buttonText", "Reset Password");
-        templateData.put("buttonLink", frontendUrl + "#/auth/update-password/" + user.getId());
+        templateData.put("buttonLink", frontendUrl + "/auth/update-password/" + user.getId());
         templateData.put("buttonColor", "#dc3545");
         templateData.put("additionalInfo", "This link will expire soon for security reasons. If you didn't request this password reset, please ignore this email.");
         templateData.put("footerMessage", "If you believe this email was sent in error, please contact support.");
@@ -484,7 +484,7 @@ public class AuthService {
         boolean mailSent = emailService.sendEmail(
                 user.getEmail(),
                 "Squad STM - Password Reset",
-                "Click here, " + frontendUrl + "#/auth/update-password/" + user.getId() + " to set new password.",
+                "Click here, " + frontendUrl + "/auth/update-password/" + user.getId() + " to set new password.",
                 templateData
         );
 
@@ -611,7 +611,7 @@ public class AuthService {
         templateData.put("emailHeading", "Reset Club Wallet MPIN");
         templateData.put("emailMessage", "<strong>" + (auth.getFirstName() != null ? auth.getFirstName() : "User") + "</strong>,<br><br>We received a request to reset your Club Wallet MPIN. Click the button below to set a new MPIN.");
         templateData.put("buttonText", "Set New MPIN");
-        templateData.put("buttonLink", frontendUrl + "#/auth/reset-mpin?token=" + token);
+        templateData.put("buttonLink", frontendUrl + "/auth/reset-mpin?token=" + token);
         templateData.put("buttonColor", "#007bff");
         templateData.put("additionalInfo", "This link will expire in 1 hour. If you didn't request this, please ignore this email.");
         templateData.put("footerMessage", "If you believe this email was sent in error, please contact support.");
@@ -619,7 +619,7 @@ public class AuthService {
         boolean mailSent = emailService.sendEmail(
                 auth.getEmail(),
                 "Squad STM - Reset MPIN",
-                "Click here to set new MPIN: " + frontendUrl + "#/auth/reset-mpin?token=" + token,
+                "Click here to set new MPIN: " + frontendUrl + "/auth/reset-mpin?token=" + token,
                 templateData
         );
         if (!mailSent) {

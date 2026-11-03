@@ -35,6 +35,8 @@ public class ControllerPermissions {
     private Boolean viewClubMoney;
     private Boolean inviteControllers;
     private Boolean manageControllerPermissions;
+    /** Create / edit / publish / delete public blog posts. */
+    private Boolean manageBlog;
 
     private String createdBy;
     private String updatedBy;

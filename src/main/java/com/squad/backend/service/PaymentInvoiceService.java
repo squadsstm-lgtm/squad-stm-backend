@@ -154,7 +154,7 @@ public class PaymentInvoiceService {
             log.info("Created new PENDING invoice {} for player {}", saved.getId(), player.getId());
         }
 
-        // Short share link only: /#/i/{code}. entityId = invoice id. createToken revokes prior codes for this invoice.
+        // Short share link only: /i/{code}. entityId = invoice id. createToken revokes prior codes for this invoice.
         InviteTokenService.InviteLinkResult invite = inviteTokenService.createToken(
                 InvitePurpose.PAYMENT_INVOICE,
                 saved.getId(),

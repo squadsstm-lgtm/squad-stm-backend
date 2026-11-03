@@ -57,6 +57,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/payments/invoices/*/*").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/payments/invoices/create-payment-intent").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/payments/invoices/confirm-payment").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/blog", "/api/blog/**").permitAll()
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);

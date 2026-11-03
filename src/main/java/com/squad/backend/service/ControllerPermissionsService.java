@@ -125,7 +125,8 @@ public class ControllerPermissionsService {
                 && !Boolean.TRUE.equals(row.getViewClubs())
                 && !Boolean.TRUE.equals(row.getViewClubMoney())
                 && !Boolean.TRUE.equals(row.getInviteControllers())
-                && !Boolean.TRUE.equals(row.getManageControllerPermissions());
+                && !Boolean.TRUE.equals(row.getManageControllerPermissions())
+                && !Boolean.TRUE.equals(row.getManageBlog());
     }
 
     public ControllerPermissions createFullPermissions(String authId, String createdBy) {
@@ -646,6 +647,7 @@ public class ControllerPermissionsService {
         row.setViewClubMoney(true);
         row.setInviteControllers(true);
         row.setManageControllerPermissions(true);
+        row.setManageBlog(true);
     }
 
     private void applyBasicDefaults(ControllerPermissions row) {
@@ -657,6 +659,7 @@ public class ControllerPermissionsService {
         row.setViewClubMoney(false);
         row.setInviteControllers(false);
         row.setManageControllerPermissions(false);
+        row.setManageBlog(false);
     }
 
     /**
@@ -691,6 +694,9 @@ public class ControllerPermissionsService {
         if (request.getManageControllerPermissions() != null) {
             row.setManageControllerPermissions(andCap(request.getManageControllerPermissions(), actorPerms.getManageControllerPermissions()));
         }
+        if (request.getManageBlog() != null) {
+            row.setManageBlog(andCap(request.getManageBlog(), actorPerms.getManageBlog()));
+        }
         // Dependent caps: work/payment require viewRequests conceptually
         if (Boolean.TRUE.equals(row.getWorkRequests()) && !Boolean.TRUE.equals(row.getViewRequests())) {
             row.setViewRequests(Boolean.TRUE.equals(actorPerms.getViewRequests()));
@@ -717,6 +723,8 @@ public class ControllerPermissionsService {
     }
 
     public ControllerPermissionsResponse toResponse(ControllerPermissions row) {
+        // Null manageBlog = legacy Controllers created before this flag; keep Blog access.
+        boolean manageBlog = row.getManageBlog() == null || Boolean.TRUE.equals(row.getManageBlog());
         return ControllerPermissionsResponse.builder()
                 .viewDashboard(Boolean.TRUE.equals(row.getViewDashboard()))
                 .viewRequests(Boolean.TRUE.equals(row.getViewRequests()))
@@ -726,6 +734,7 @@ public class ControllerPermissionsService {
                 .viewClubMoney(Boolean.TRUE.equals(row.getViewClubMoney()))
                 .inviteControllers(Boolean.TRUE.equals(row.getInviteControllers()))
                 .manageControllerPermissions(Boolean.TRUE.equals(row.getManageControllerPermissions()))
+                .manageBlog(manageBlog)
                 .build();
     }
 

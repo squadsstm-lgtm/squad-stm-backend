@@ -709,7 +709,7 @@ public class ClubWalletService {
         data.put("emailHeading", completed ? "Withdrawal completed" : "Withdrawal failed");
         data.put("emailMessage", emailMessageHtml);
         data.put("buttonText", "View Club Wallet");
-        data.put("buttonLink", frontendUrl + "#/club-wallet");
+        data.put("buttonLink", frontendUrl + "/club-wallet");
         data.put("buttonColor", "#007bff");
         data.put("footerMessage", "Squad STM");
 
@@ -759,14 +759,14 @@ public class ClubWalletService {
             verifyData.put("emailHeading", "Withdrawal request pending verification");
             verifyData.put("emailMessage", "<strong>" + requesterName + "</strong> requested a withdrawal of <strong>£" + amountStr + " " + currency + "</strong>. Account name: <strong>" + accountName + "</strong>. Please log in to verify the request.");
             verifyData.put("buttonText", "Open Club Wallet");
-            verifyData.put("buttonLink", frontendUrl + "#/club-wallet");
+            verifyData.put("buttonLink", frontendUrl + "/club-wallet");
             verifyData.put("buttonColor", "#007bff");
             verifyData.put("footerMessage", "Squad STM");
             for (Auth verifier : verifiers) {
                 if (verifier.getEmail() != null && !verifier.getEmail().isEmpty()) {
                     try {
                         emailService.sendEmail(verifier.getEmail(), "Squad STM - Withdrawal request pending verification",
-                                "Please verify the withdrawal request: " + frontendUrl + "#/club-wallet", verifyData);
+                                "Please verify the withdrawal request: " + frontendUrl + "/club-wallet", verifyData);
                     } catch (Exception e) {
                         log.warn("Failed to send verification email to {}: {}", verifier.getEmail(), e.getMessage());
                     }
@@ -781,7 +781,7 @@ public class ClubWalletService {
         infoData.put("emailHeading", "Withdrawal request");
         infoData.put("emailMessage", "<strong>" + clubName + "</strong>: <strong>" + requesterName + "</strong> requested withdrawal of <strong>£" + amountStr + " " + currency + "</strong> on the account name of <strong>" + accountName + "</strong>. Status: <strong>" + statusLabel + "</strong>.");
         infoData.put("buttonText", "View Club Wallet");
-        infoData.put("buttonLink", frontendUrl + "#/club-wallet");
+        infoData.put("buttonLink", frontendUrl + "/club-wallet");
         infoData.put("buttonColor", "#007bff");
         infoData.put("footerMessage", "Squad STM");
         for (Auth recipient : infoRecipients) {
