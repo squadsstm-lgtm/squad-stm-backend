@@ -18,6 +18,7 @@ public class ControllerPermissionsResponse {
     private Boolean viewClubMoney;
     private Boolean inviteControllers;
     private Boolean manageControllerPermissions;
+    private Boolean manageBlog;
 
     public static ControllerPermissionsResponse allTrue() {
         return ControllerPermissionsResponse.builder()
@@ -29,6 +30,7 @@ public class ControllerPermissionsResponse {
                 .viewClubMoney(true)
                 .inviteControllers(true)
                 .manageControllerPermissions(true)
+                .manageBlog(true)
                 .build();
     }
 
@@ -42,6 +44,7 @@ public class ControllerPermissionsResponse {
                 .viewClubMoney(false)
                 .inviteControllers(false)
                 .manageControllerPermissions(false)
+                .manageBlog(false)
                 .build();
     }
 
@@ -55,6 +58,7 @@ public class ControllerPermissionsResponse {
                 .viewClubMoney(false)
                 .inviteControllers(false)
                 .manageControllerPermissions(false)
+                .manageBlog(false)
                 .build();
     }
 }

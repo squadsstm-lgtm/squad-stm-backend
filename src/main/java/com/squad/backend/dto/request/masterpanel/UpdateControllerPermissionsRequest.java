@@ -12,4 +12,5 @@ public class UpdateControllerPermissionsRequest {
     private Boolean viewClubMoney;
     private Boolean inviteControllers;
     private Boolean manageControllerPermissions;
+    private Boolean manageBlog;
 }

@@ -491,7 +491,7 @@ public class AuthController {
         try {
             authService.verifyEmail(id);
             return ResponseEntity.status(HttpStatus.FOUND)
-                    .header("Location", frontendUrl + "#/auth/success")
+                    .header("Location", frontendUrl + "/auth/success")
                     .build();
         } catch (IllegalArgumentException e) {
             if ((ErrorMessages.USER_BLOCKED.equals(e.getMessage()) || ErrorMessages.USER_INACTIVE.equals(e.getMessage()))) {

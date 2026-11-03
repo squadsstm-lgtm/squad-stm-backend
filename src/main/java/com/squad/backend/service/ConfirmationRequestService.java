@@ -506,7 +506,7 @@ public class ConfirmationRequestService {
                     "Player does not have an email address. Use WhatsApp or update the player profile.");
         }
 
-        // Short invite-token link: /#/i/{code} (same pattern as player WhatsApp invites)
+        // Short invite-token link: /i/{code} (same pattern as player WhatsApp invites)
         InviteTokenService.InviteLinkResult inviteLink = inviteTokenService.createToken(
                 InvitePurpose.PAYMENT_REQUEST,
                 requestId,
